@@ -29,8 +29,12 @@
     saveSelected();
   }
   var world = { cols: COLS, rows: ROWS, tick: 0, hazards: [], batteries: [], goals: [], drones: [] };
+  var history = []; // [{t, scores:{modelId: score}}] capped at 200 — feeds the Analytics sparkline
+  var heatFilter = "all";
   var paused = false, autoWaves = true, lastWave = performance.now(), lastDecision = 0;
   var liveMode = false; // false = mock always; true = OpenRouter when key present
+  var verboseTrace = true; // per-decision 🧠 lines in Events
+  var payloadFollow = null; // model id the payload tab follows; defaults to first drone
   var stats = {};
 
   function $(id){ return document.getElementById(id); }
@@ -58,20 +62,34 @@
     var ec = $("eventCount"); if (ec) ec.textContent = logEl.children.length;
   }
 
-  function makeDrones(){
+  function makeDrones(fresh){
     var starts = [{c:1,r:1},{c:COLS-2,r:1},{c:COLS-2,r:ROWS-2},{c:1,r:ROWS-2},{c:8,r:5},{c:4,r:5},{c:11,r:5},{c:8,r:2}];
     var i = 0;
     var keep = {};
-    world.drones.forEach(function(d){ keep[d.model] = { battery: d.battery, score: d.score }; });
+    if (!fresh) world.drones.forEach(function(d){ keep[d.model] = { battery: d.battery, score: d.score }; });
     world.drones = selectedIds.map(function(id){
       var m = metaFor(id), s = starts[i++ % starts.length];
       var prev = keep[id];
       return { model:id, label:m.label, color:colorFor(id), c:s.c, r:s.r,
         px:(s.c+0.5)*CELL, py:(s.r+0.5)*CELL,
-        battery: prev ? prev.battery : 100, score: prev ? prev.score : 0,
-        dead:false, lastMove:"—", lastMs:null, lastEngine:null };
+        battery: prev ? prev.battery : 100, score: prev ? prev.score : 0, trail: [], visits: {},
+        hoverStreak: 0, dead:false, lastMove:"—", lastMs:null, lastEngine:null, _pending: null };
     });
-    selectedIds.forEach(function(id){ if(!stats[id]) stats[id]={calls:0,errors:0,lat:[],crashes:0,pickups:0}; });
+    selectedIds.forEach(function(id){
+      if(!stats[id]) stats[id]={calls:0,errors:0,lat:[],crashes:0,pickups:0,pads:0,forced:0,outraced:0,fallbacks:0,moves:{up:0,down:0,left:0,right:0,hover:0}};
+      var s = stats[id];
+      if(s.pads==null) s.pads=0; if(s.forced==null) s.forced=0; if(s.outraced==null) s.outraced=0; if(s.fallbacks==null) s.fallbacks=0;
+      if(!s.moves) s.moves={up:0,down:0,left:0,right:0,hover:0};
+    });
+    renderPayloadSelect();
+    renderHeatSelect();
+  }
+  var allDeadNotified = false;
+  function restartRace(){
+    allDeadNotified = false;
+    makeDrones(true);
+    renderPills(); renderLB();
+    log("🏁 race restarted — batteries full, scores kept");
   }
 
   function spawn(n, kind){
@@ -85,19 +103,6 @@
 
   function renderPills(){
     pillsEl.innerHTML = "";
-    selectedIds.forEach(function(id){
-      var m = metaFor(id);
-      var s = document.createElement("span");
-      s.className = "pill";
-      s.title = id + " — click to remove";
-      s.innerHTML = '<span class="swatch" style="background:'+colorFor(id)+'"></span>'+m.label+' <span class="muted">×</span>';
-      s.onclick = function(){
-        selectedIds = selectedIds.filter(function(x){ return x !== id; });
-        saveSelected(); makeDrones(); renderPills(); renderLB();
-        log("➖ removed <b>"+m.label+"</b>");
-      };
-      pillsEl.appendChild(s);
-    });
     var add = document.createElement("span");
     add.className = "pill add";
     add.textContent = "＋ Models (" + selectedIds.length + ")";
@@ -164,18 +169,130 @@
   }
 
   function rules() { return (window.DroneProviders && window.DroneProviders.RULES) || { move:5, hover:1, wall:5, hazard:10, charge:30, pad:50, low:30 }; }
+  // payload inspector follows one drone (default: first). Selection persists by model id.
+  function followedDrone(){
+    for (var i = 0; i < world.drones.length; i++) if (world.drones[i].model === payloadFollow) return world.drones[i];
+    return world.drones[0] || null;
+  }
+  function renderPayloadSelect(){
+    var sel = $("payloadDrone"); if (!sel) return;
+    var cur = payloadFollow;
+    sel.innerHTML = "";
+    world.drones.forEach(function(d){
+      var o = document.createElement("option");
+      o.value = d.model; o.textContent = d.label;
+      sel.appendChild(o);
+    });
+    if (world.drones.some(function(d){ return d.model === cur; })) sel.value = cur;
+    payloadFollow = sel.value || null;
+  }
+  function renderHeatSelect(){
+    var sel = $("heatDrone"); if (!sel) return;
+    var cur = heatFilter;
+    sel.innerHTML = '<option value="all">All drones</option>';
+    world.drones.forEach(function(d){
+      var o = document.createElement("option");
+      o.value = d.model; o.textContent = d.label;
+      sel.appendChild(o);
+    });
+    sel.value = "all";
+    world.drones.forEach(function(d){ if (d.model === cur) sel.value = cur; });
+    heatFilter = sel.value || "all";
+  }
+  function rgba(hex, a) {
+    var h = String(hex || "#5eead4").replace("#", "");
+    if (h.length === 3) h = h.split("").map(function(c){ return c + c; }).join("");
+    var n = parseInt(h, 16);
+    return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a.toFixed(2) + ")";
+  }
+  function renderHeatmap(){
+    var cv = $("heatCanvas"); if (!cv) return;
+    var ctx2 = cv.getContext("2d");
+    var cw = cv.width, ch = cv.height, sx = cw / COLS, sy = ch / ROWS;
+    var targets = world.drones.filter(function(d){ return heatFilter === "all" || d.model === heatFilter; });
+    var max = 1;
+    targets.forEach(function(d){
+      Object.keys(d.visits || {}).forEach(function(k){ if (d.visits[k] > max) max = d.visits[k]; });
+    });
+    ctx2.clearRect(0, 0, cw, ch);
+    ctx2.fillStyle = "#0a0f1a"; ctx2.fillRect(0, 0, cw, ch);
+    targets.forEach(function(d){
+      Object.keys(d.visits || {}).forEach(function(k){
+        var parts = k.split(","), c = +parts[0], r = +parts[1];
+        var a = 0.18 + 0.82 * Math.log(1 + d.visits[k]) / Math.log(1 + max);
+        ctx2.fillStyle = rgba(d.color, a);
+        ctx2.fillRect(c * sx + 1, r * sy + 1, sx - 2, sy - 2);
+      });
+    });
+    for (var r = 0; r < ROWS; r++) for (var c = 0; c < COLS; c++) {
+      ctx2.strokeStyle = "#1b2540"; ctx2.lineWidth = 1;
+      ctx2.strokeRect(c * sx + 0.5, r * sy + 0.5, sx - 1, sy - 1);
+    }
+  }
+  function renderAnalytics(){
+    var body = $("analyticsBody"); if (!body) return;
+    if (!history.length) { body.innerHTML = '<div class="muted">Waiting for ticks…</div>'; return; }
+    var t = Math.max(1, world.tick);
+    var rows = world.drones.slice().sort(function(a, b){ return b.score - a.score; }).map(function(d){
+      var s = stats[d.model] || { calls: 0, errors: 0, lat: [], crashes: 0, pickups: 0, pads: 0, forced: 0, outraced: 0, fallbacks: 0 };
+      var avg = s.lat.length ? Math.round(s.lat.reduce(function(a, b){ return a + b; }, 0) / s.lat.length) : 0;
+      var fb = s.calls ? Math.round(100 * (s.fallbacks || 0) / s.calls) : 0;
+      return '<tr><td style="color:' + d.color + '">' + d.label + '</td><td>' + d.score + '</td>' +
+        '<td>' + (s.pads || 0) + '</td><td>' + (s.pickups || 0) + '</td><td>' + s.crashes + '</td>' +
+        '<td>' + (d.score / t).toFixed(1) + '</td><td>' + s.calls + '</td><td>' + s.errors + '</td>' +
+        '<td>' + avg + 'ms</td><td>' + fb + '%</td></tr>';
+    }).join("");
+    var maxMove = 1;
+    world.drones.forEach(function(d){
+      var m = (stats[d.model] || {}).moves || {};
+      Object.keys(m).forEach(function(k){ if (m[k] > maxMove) maxMove = m[k]; });
+    });
+    var hists = world.drones.map(function(d){
+      var m = ((stats[d.model] || {}).moves) || { up: 0, down: 0, left: 0, right: 0, hover: 0 };
+      var bars = ["up", "down", "left", "right", "hover"].map(function(k){
+        var w = Math.round(100 * (m[k] || 0) / maxMove);
+        return '<div class="hbar"><span class="hm">' + k + '</span><span class="track"><span class="fill" style="width:' + w + '%;background:' + d.color + '"></span></span><span class="hv">' + (m[k] || 0) + '</span></div>';
+      }).join("");
+      var s2 = stats[d.model] || {};
+      return '<div><h3 style="color:' + d.color + '">' + d.label + ' moves · forced ' + (s2.forced || 0) + ' · outraced ' + (s2.outraced || 0) + '</h3>' + bars + '</div>';
+    }).join("");
+    body.innerHTML = '<h3>Standings — score, pads, pickups, crashes, score/tick, calls, errors, avg, mock-fallback</h3>' +
+      '<table class="stats"><tr><th>Model</th><th>Score</th><th>Pads</th><th>⚡</th><th>💥</th><th>Pt/t</th><th>Calls</th><th>Err</th><th>Avg</th><th>FB</th></tr>' + rows + '</table>' +
+      '<h3>Score over time</h3><canvas id="sparkCanvas" width="560" height="120"></canvas>' +
+      '<div class="analytics-grid">' + hists + '</div>';
+    var cv = $("sparkCanvas");
+    if (cv && history.length > 1) {
+      var g = cv.getContext("2d"), W2 = cv.width, H2 = cv.height;
+      g.clearRect(0, 0, W2, H2);
+      var maxS = 1;
+      history.forEach(function(h){ Object.keys(h.s).forEach(function(k){ if (h.s[k] > maxS) maxS = h.s[k]; }); });
+      world.drones.forEach(function(d){
+        g.strokeStyle = d.color; g.lineWidth = 2; g.beginPath();
+        history.forEach(function(h, i){
+          var x = 8 + (W2 - 16) * i / Math.max(1, history.length - 1);
+          var y = H2 - 8 - (H2 - 20) * ((h.s[d.model] || 0) / maxS);
+          i ? g.lineTo(x, y) : g.moveTo(x, y);
+        });
+        g.stroke();
+      });
+    }
+  }
   function renderLB(){
     var R = rules();
-    lbEl.innerHTML = world.drones.map(function(d){
+    var ranked = world.drones.slice().sort(function(a, b){
+      if (b.score !== a.score) return b.score - a.score;
+      return b.battery - a.battery;
+    });
+    lbEl.innerHTML = ranked.map(function(d, i){
       var s = stats[d.model], avg = s.lat.length?Math.round(s.lat.reduce(function(a,b){return a+b;},0)/s.lat.length):0;
       var badge = d.dead?'<span class="badge dead">DEAD '+window.DroneProviders.cellName(d.c,d.r)+'</span>'
         :(d.battery<R.low?'<span class="badge low">'+window.DroneProviders.cellName(d.c,d.r)+' LOW</span>'
         :'<span class="badge ok">'+window.DroneProviders.cellName(d.c,d.r)+' · '+d.lastMove+'</span>');
-      return '<div class="lb-row"><div class="lb-top"><span class="lb-name" style="color:'+d.color+'">'+d.label+'</span>'+badge+'</div>'+
+      return '<div class="lb-row'+(i===0 && ranked.length>1?' leader':'')+'"><div class="lb-top"><span class="lb-name" style="color:'+d.color+'"><span class="rank muted">#'+(i+1)+' </span>'+d.label+'</span>'+badge+'</div>'+
         '<div class="lb-sub">'+d.model+'</div><div class="battbar '+(d.dead?"dead":(d.battery<R.low?"low":""))+'"><i style="width:'+Math.max(0,d.battery)+'%"></i></div>'+
         '<div class="lb-stats"><span>🔋<b>'+d.battery+'</b></span><span>★<b>'+d.score+'</b></span>'+
         '<span>crash<b>'+s.crashes+'</b></span><span>⚡<b>'+s.pickups+'</b></span></div>'+
-        '<div class="lb-stats net"><span>calls<b>'+s.calls+'</b></span><span>avg<b>'+avg+'ms</b></span><span>last<b>'+(d.lastMs!=null?d.lastMs+"ms":"—")+'</b></span></div></div>';
+        '<div class="lb-stats net"><span>calls<b>'+s.calls+'</b></span><span>avg<b>'+avg+'ms</b></span><span>last<b>'+(d.lastMs!=null?d.lastMs+"ms":"—")+'</b></span><span class="lb-del" data-model="'+d.model+'" title="Remove model">Delete</span></div></div>';
     }).join("") || '<div class="muted">No models enabled.</div>';
     arenaMeta.textContent = "tick "+world.tick+" · 16×11 · "+world.hazards.length+" hazards · "+world.batteries.length+" batteries · "+world.goals.length+" pads";
     if (tickEl) tickEl.textContent = world.tick;
@@ -196,8 +313,8 @@
     var label = $("serverStatusText"), dot = $("serverStatusDot");
     var keyEl = $("key-openrouter"), hasKey = keyEl && keyEl.value.trim();
     var text = paused ? "⏸ paused — 0 API calls"
-      : liveMode ? (hasKey ? "● LIVE — OpenRouter decisions" : "● LIVE selected — paste key to start")
-      : "● Mock — no network";
+      : liveMode ? (hasKey ? "LIVE — OpenRouter decisions" : "LIVE selected — paste key to start")
+      : "Mock — no network";
     if (label) label.textContent = text;
     if (dot) dot.classList.toggle("ready", !paused && (!liveMode || !!hasKey));
     var mt = $("modeToggle");
@@ -216,21 +333,23 @@
     if(!world.drones.length || paused) return;
     var P = window.DroneProviders;
     var alive = world.drones.filter(function(d){ return !d.dead; });
-    if(!alive.length) return;
+    if(!alive.length) {
+      if (!allDeadNotified) { allDeadNotified = true; log("☠️ all drones dead — press <b>↻ Restart</b> for a new round (scores kept)"); renderLB(); }
+      return;
+    }
     var apiKey = getApiKey();
     await Promise.allSettled(alive.map(function(d){
       var st = P.buildDroneState(world, d);
-      if(world.drones[0]===d){
+      if(followedDrone()===d){
         payloadEl.textContent = JSON.stringify(P.payloadPreview(st, d.model), null, 2);
-        var pm = $("payloadMeta"); if (pm) pm.textContent = d.label + " · " + d.model + " · tick " + world.tick + (apiKey ? " · LIVE" : " · mock");
+        var pm = $("payloadMeta"); if (pm) pm.textContent = "tick " + world.tick + (apiKey ? " · LIVE" : " · mock");
       }
       return P.decideWithFallback(st, { model:d.model, apiKey:apiKey }).then(function(res){
         var s = stats[d.model]; s.calls++; s.lat.push(res.latencyMs); if(s.lat.length>20)s.lat.shift();
         d.lastMove = res.chosen; d.lastMs = res.latencyMs; d.lastEngine = res.engine;
         d._pending = { move: res.chosen, st: st, res: res };
-        if (res.fallback) { s.errors++; log("⚠️ <b style='color:"+d.color+"'>"+d.label+"</b> live failed ("+res.liveError+") — mock fallback"); }
-        var vb = $("verboseLog");
-        if (vb && vb.checked) {
+        if (res.fallback) { s.errors++; s.fallbacks=(s.fallbacks||0)+1; log("⚠️ <b style='color:"+d.color+"'>"+d.label+"</b> live failed ("+res.liveError+") — mock fallback"); }
+        if (verboseTrace) {
           var so = st.stateObj;
           log("🧠 <b style='color:"+d.color+"'>"+d.label+"</b> "+so.me.at+" b"+so.me.batt+" → <b>"+res.chosen+"</b>" +
             " (PAD "+(so.pad.join(",")||"—")+" BATT "+(so.batt_cells.slice(0,3).join(",")||"—")+")" +
@@ -258,6 +377,7 @@
         });
         if (forced) {
           log("🚫 <b style='color:"+d.color+"'>"+d.label+"</b> hover limit ("+R.maxHover+") — forced "+forced);
+          stats[d.model].forced = (stats[d.model].forced || 0) + 1;
           mv = forced;
         }
       }
@@ -266,6 +386,7 @@
       var isPadTarget = mv !== "hover" && at(world.goals, tc, tr) !== -1;
       if (isPadTarget && claimedPads[tk]) {
         d.lastMove = "hover";
+        stats[d.model].outraced = (stats[d.model].outraced || 0) + 1;
         log("🏁 <b style='color:"+d.color+"'>"+d.label+"</b> out-raced to pad — hovers");
         applyMove(d, "hover");
       } else {
@@ -280,7 +401,13 @@
       if (at(world.goals, nc, nr) === -1 && at(world.batteries, nc, nr) === -1) { h.c = nc; h.r = nr; }
     });
     world.tick++;
+    var snap = { t: world.tick, s: {} };
+    world.drones.forEach(function(d){ snap.s[d.model] = d.score; });
+    history.push(snap);
+    if (history.length > 200) history.shift();
     renderLB();
+    renderAnalytics();
+    renderHeatmap();
   }
 
   function at(list, c, r){ for(var i=list.length-1;i>=0;i--) if(list[i].c===c&&list[i].r===r) return i; return -1; }
@@ -292,12 +419,19 @@
     if(nc<0||nc>=COLS||nr<0||nr>=ROWS){ d.battery -= R.wall; log("🧱 <b style='color:"+d.color+"'>"+d.label+"</b> wall −"+R.wall); }
     else { d.c = nc; d.r = nr; d.battery -= (move==="hover"?R.hover:R.move); }
     d.hoverStreak = (move === "hover") ? (d.hoverStreak || 0) + 1 : 0;
+    var vst = stats[d.model];
+    if (vst && vst.moves && vst.moves[move] != null) vst.moves[move]++;
+    d.visits = d.visits || {};
+    d.visits[d.c + "," + d.r] = (d.visits[d.c + "," + d.r] || 0) + 1;
+    d.trail = d.trail || [];
+    d.trail.push(P.cellName(d.c, d.r));
+    if (d.trail.length > 3) d.trail.shift();
     var bi = at(world.batteries, d.c, d.r);
     if(bi!==-1){ world.batteries.splice(bi,1); d.battery=Math.min(100,d.battery+R.charge); stats[d.model].pickups++; log("⚡ <b style='color:"+d.color+"'>"+d.label+"</b> +"+R.charge+" @ "+P.cellName(d.c,d.r)+" (now "+d.battery+")"); }
     var gi = at(world.goals, d.c, d.r);
     if(gi!==-1){
-      world.goals.splice(gi,1); d.score+=R.pad; stats[d.model].pads = (stats[d.model].pads||0)+1;
-      log("🛬 <b style='color:"+d.color+"'>"+d.label+"</b> PAD +"+R.pad+" @ "+P.cellName(d.c,d.r));
+      world.goals.splice(gi,1); d.score+=R.pad; d.battery=Math.min(100, R.padBatt == null ? 100 : R.padBatt); stats[d.model].pads = (stats[d.model].pads||0)+1;
+      log("🛬 <b style='color:"+d.color+"'>"+d.label+"</b> PAD +"+R.pad+" + batt "+d.battery+" @ "+P.cellName(d.c,d.r));
       var cell = freeCell(occupiedSet()); if (cell) world.goals.push(cell); // pad respawns elsewhere
     }
     if(at(world.hazards, d.c, d.r)!==-1){ d.battery-=R.hazard; stats[d.model].crashes++; d.score=Math.max(0,d.score-5); log("💥 <b style='color:"+d.color+"'>"+d.label+"</b> hazard −"+R.hazard+" @ "+P.cellName(d.c,d.r)+" (now "+d.battery+")"); }
@@ -362,11 +496,20 @@
     canvas=$("arena"); ctx=canvas.getContext("2d");
     logEl=$("eventLog"); lbEl=$("leaderboard"); pillsEl=$("modelPills");
     payloadEl=$("jsonPayloadPreview"); tickEl=$("tickLabel"); arenaMeta=$("arenaMeta");
+    lbEl.addEventListener("click", function(e){
+      var t = e.target.closest ? e.target.closest(".lb-del") : null;
+      if (!t) return;
+      var id = t.getAttribute("data-model");
+      var m = metaFor(id);
+      selectedIds = selectedIds.filter(function(x){ return x !== id; });
+      saveSelected(); makeDrones(); renderPills(); renderLB();
+      log("➖ removed <b>"+m.label+"</b>");
+    });
     // tabs under arena
     document.querySelectorAll(".tab").forEach(function(btn){
       btn.onclick = function(){
         document.querySelectorAll(".tab").forEach(function(b){ b.classList.toggle("active", b===btn); });
-        ["events","payload"].forEach(function(name){
+        ["events","heat","analytics","payload"].forEach(function(name){
           var p = $("panel-"+name); if (p) p.hidden = (name !== btn.getAttribute("data-tab"));
         });
       };
@@ -376,11 +519,30 @@
       var t = payloadEl.textContent || "";
       if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ copyBtn.textContent="Copied!"; setTimeout(function(){ copyBtn.textContent="Copy"; },1200); });
     };
+    var tt = $("traceToggle");
+    if (tt) tt.onclick = function(){
+      verboseTrace = !verboseTrace;
+      tt.textContent = verboseTrace ? "trace on" : "trace off";
+      tt.classList.toggle("on", verboseTrace);
+      tt.classList.toggle("off", !verboseTrace);
+    };
+    var pd = $("payloadDrone");
+    if (pd) pd.onchange = function(){ payloadFollow = pd.value || null; };
+    var hd = $("heatDrone");
+    if (hd) hd.onchange = function(){ heatFilter = hd.value || "all"; renderHeatmap(); };
+    var hc = $("heatClearBtn");
+    if (hc) hc.onclick = function(){
+      world.drones.forEach(function(d){ d.visits = {}; });
+      renderHeatmap();
+      log("🧹 heatmap cleared");
+    };
     makeDrones();
     spawn(4,"hazards"); spawn(3,"batteries"); spawn(2,"goals"); renderLB();
     var P = window.DroneProviders;
-    if(world.drones[0]){ var st=P.buildDroneState(world, world.drones[0]);
-      payloadEl.textContent=JSON.stringify(P.payloadPreview(st,world.drones[0].model),null,2); }
+    renderPayloadSelect();
+    var fol = followedDrone();
+    if(fol){ var st=P.buildDroneState(world, fol);
+      payloadEl.textContent=JSON.stringify(P.payloadPreview(st,fol.model),null,2); }
     log("🏁 grid live — 1 entity = 1 cell, hazards shamble 1 cell/tick");
     var keyEl = $("key-openrouter");
     var keyChip = $("keyChip");
@@ -425,6 +587,7 @@
     setStatus();
     if (getApiKey()) { setPaused(true); log("🔑 key found — race held. Press <b>Start</b> when ready (no calls until then)."); }
     $("pauseBtn").onclick=function(){ setPaused(!paused); };
+    $("restartBtn").onclick=function(){ restartRace(); };
     $("manualTriggerBtn").onclick=function(){
       if (paused) { log("⏸ paused — press Start to run, or step disabled to save API calls"); return; }
       decideAll();
@@ -441,7 +604,7 @@
       var lb = $("legendBatt");
       if (lb) lb.innerHTML = '<i class="sw battery"></i>battery cell, enter to +'+R.charge+' charge';
       var lp = $("legendPad");
-      if (lp) lp.innerHTML = '<i class="sw goal"></i>landing pad, enter for +'+R.pad+' score';
+      if (lp) lp.innerHTML = '<i class="sw goal"></i>landing pad, +'+R.pad+' score + batt to '+R.padBatt;
       var ll = $("legendLow");
       if (ll) ll.innerHTML = '<i class="sw low"></i>low battery (&lt;'+R.low+')';
     }
@@ -458,7 +621,7 @@
         log("⚙ rule <b>"+field+"</b> → "+v+" (next tick uses it)");
       });
     }
-    ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover"].forEach(function(pair){
+    ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover"].forEach(function(pair){
       var parts = pair.split("/"); bindRule(parts[0], parts[1]);
     });
     var rb = $("rulesResetBtn");
@@ -466,7 +629,7 @@
       var D = window.DroneProviders.DEFAULT_RULES;
       Object.keys(D).forEach(function(k){ window.DroneProviders.RULES[k] = D[k]; });
       window.DroneProviders.saveRules();
-      ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover"].forEach(function(pair){
+      ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover"].forEach(function(pair){
         var parts = pair.split("/"); var el = $(parts[0]); if (el) el.value = D[parts[1]];
       });
       refreshRulesLabels(); renderLB();

@@ -32,6 +32,13 @@ canvas#arena { width:100%; height:auto; background:#0a0f1a; border:1px solid var
 #leaderboard { display:flex; flex-direction:column; gap:8px; min-width:0; }
 .lb-row { display:flex; flex-direction:column; gap:8px; background:#0e1420; border:1px solid var(--line); border-radius:10px; padding:10px; min-width:0; overflow:hidden; }
 .lb-top { display:flex; justify-content:space-between; align-items:center; gap:8px; min-width:0; }
+.lb-del { margin-left:auto; font-size:11px; color:var(--mut); cursor:pointer; }
+.lb-del:hover { color:var(--bad); text-decoration:underline; }
+.lb-row.leader { border-color:var(--acc); }
+.rank { font-weight:400; }
+.lb-head { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:0 0 10px; }
+.lb-head h2 { margin:0; }
+.lb-models { display:flex; margin:0; flex-shrink:0; }
 .lb-name { font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 .lb-sub { font-size:11px; color:var(--mut); font-family:monospace; word-break:break-all; white-space:normal; line-height:1.4; }
 .lb-stats { font-size:12px; color:var(--mut); display:flex; gap:6px 12px; flex-wrap:wrap; align-items:center; }
@@ -51,21 +58,40 @@ pre { background:#0a0f1a; border:1px solid var(--line); border-radius:8px; paddi
 .arena-col { min-width:0; }
 .card.sticky { position:sticky; top:14px; }
 .tabs { padding:0; overflow:hidden; }
-.tabbar { display:flex; gap:4px; align-items:center; padding:8px 10px; border-bottom:1px solid var(--line); }
+.tabbar { display:flex; gap:4px; align-items:center; padding:8px 10px; border-bottom:1px solid var(--line); flex-wrap:nowrap; overflow-x:auto; }
+.tab { background:transparent; border:1px solid transparent; border-radius:8px; padding:8px 14px; font-weight:600; white-space:nowrap; }
 .tab { background:transparent; border:1px solid transparent; border-radius:8px; padding:8px 14px; font-weight:600; }
 .tab.active { background:#1e2a44; border-color:var(--acc); }
 .tab .count { font-size:10px; background:#1e2a44; border:1px solid var(--line); border-radius:10px; padding:1px 7px; margin-left:4px; }
-.tab-meta { margin-left:auto; }
+.pane-tools { display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+.pane-tools select { background:#0e1420; border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:5px 8px; font-size:12px; max-width:200px; }
+.pane-tools .copybtn { margin-left:auto; }
+.tracepill { border:1px solid var(--acc); background:#134e4a; border-radius:14px; padding:4px 10px; font-size:11px; font-weight:700; cursor:pointer; }
+.tracepill.off { background:transparent; border-color:var(--line); color:var(--mut); }
 .modebtn.live { background:#134e4a; border-color:var(--acc); }
 .racebtn.paused { background:#7f1d1d; border-color:var(--bad); }
 .copybtn { margin-left:8px; padding:6px 10px; font-size:12px; }
 .key-field input[hidden] { display:none; }
 .key-chip { font-size:12px; color:var(--acc); border:1px solid var(--line); border-radius:8px; padding:7px 10px; background:#0e1420; cursor:pointer; }
 .key-chip[hidden] { display:none; }
-.events-tools { margin-bottom:8px; }
-.events-tools label { display:flex; gap:6px; align-items:center; cursor:pointer; }
 .tabpanel { padding:12px 14px; }
 .tabpanel pre { max-height:380px; }
+.heat-tools { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+.heat-tools select { background:#0e1420; border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:5px 8px; font-size:12px; }
+#heatCanvas { width:100%; max-width:560px; height:auto; background:#0a0f1a; border:1px solid var(--line); border-radius:10px; }
+table.stats { width:100%; border-collapse:collapse; font-size:12px; }
+table.stats th, table.stats td { text-align:right; padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+table.stats th:first-child, table.stats td:first-child { text-align:left; }
+table.stats th { color:var(--mut); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+#sparkCanvas { width:100%; max-width:560px; height:120px; background:#0a0f1a; border:1px solid var(--line); border-radius:10px; margin:10px 0; }
+.hbar { display:flex; gap:6px; align-items:center; font-size:11px; margin:3px 0; }
+.hbar .hm { width:52px; color:var(--mut); font-family:monospace; }
+.hbar .track { flex:1; height:8px; background:#222c44; border-radius:4px; overflow:hidden; }
+.hbar .fill { display:block; height:100%; }
+.hbar .hv { width:30px; text-align:right; font-family:monospace; }
+.analytics-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 18px; }
+.analytics-grid h3 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:12px 0 4px; }
+@media (max-width:700px){ .analytics-grid{ grid-template-columns:1fr; } }
 .rules { margin-top:8px; }
 .rules summary { cursor:pointer; font-size:12px; color:var(--mut); }
 .rules-grid { gap:12px; margin-top:8px; }

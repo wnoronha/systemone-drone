@@ -12,7 +12,7 @@
   <div class="brand">
     <span class="dot"></span>
     <div>
-      <h1>systemone-drone <span class="tag">GRID MOCK</span></h1>
+      <h1>systemone-drone <span class="tag">BETA</span></h1>
       <p>16×11 single-cell grid · battleship-style state · battery-limited</p>
     </div>
   </div>
@@ -20,6 +20,7 @@
     <div id="serverStatus"><span id="serverStatusDot" class="ready"></span><span id="serverStatusText">mock mode</span></div>
     <button id="modeToggle" class="modebtn" title="Switch between mock and live OpenRouter">● Mock</button>
     <button id="raceToggle" class="racebtn" title="Start / pause — paused makes zero API calls">⏸ Pause</button>
+    <button id="traceToggle" class="tracepill on" title="Toggle per-decision trace lines in Events">trace on</button>
     <label class="key-field" id="keyField">Key
       <input id="key-openrouter" type="password" placeholder="sk-or-…" />
       <button id="keyChip" class="key-chip" title="Key saved — click to change" hidden>🔑 key saved · change</button>
@@ -32,13 +33,13 @@
   <section class="controls card">
     <div class="row">
       <button id="pauseBtn">Pause</button>
+      <button id="restartBtn" title="Fresh batteries and positions, scores kept">↻ Restart</button>
       <button id="manualTriggerBtn">Decide now</button>
       <button id="autoBtn" class="active">Auto waves: on</button>
       <button id="spawnHazardBtn">+ 2 hazards</button>
       <button id="spawnBatteryBtn">+ 2 batteries</button>
       <button id="clearBtn">Clear</button>
     </div>
-    <div class="row wrap" id="modelPills"></div>
   </section>
 
   <section class="layout">
@@ -53,7 +54,7 @@
           <span><i class="sw drone"></i>drone (letter = initial)</span>
           <span><i class="sw hazard"></i>hazard cell</span>
           <span id="legendBatt"><i class="sw battery"></i>battery cell, enter to +30 charge</span>
-          <span id="legendPad"><i class="sw goal"></i>landing pad, enter for +50 score</span>
+          <span id="legendPad"><i class="sw goal"></i>landing pad (rules panel sets values)</span>
           <span id="legendLow"><i class="sw low"></i>low battery (&lt;30)</span>
         </div>
       </div>
@@ -61,15 +62,29 @@
       <div class="tabs card">
         <div class="tabbar" role="tablist">
           <button class="tab active" data-tab="events" role="tab">Events <span id="eventCount" class="count">0</span></button>
+          <button class="tab" data-tab="heat" role="tab">Heatmap</button>
+          <button class="tab" data-tab="analytics" role="tab">Analytics</button>
           <button class="tab" data-tab="payload" role="tab">Decision payload</button>
-          <span class="tab-meta muted small" id="payloadMeta">—</span>
-          <button id="copyPayloadBtn" class="copybtn" title="Copy payload JSON">Copy</button>
         </div>
         <div class="tabpanel" id="panel-events" role="tabpanel">
-          <div class="events-tools"><label class="muted small"><input type="checkbox" id="verboseLog" checked /> decisions</label></div>
           <div id="eventLog"></div>
         </div>
+        <div class="tabpanel" id="panel-heat" role="tabpanel" hidden>
+          <div class="heat-tools">
+            <label class="muted small">Drone <select id="heatDrone"></select></label>
+            <button id="heatClearBtn" class="copybtn" title="Clear recorded visits">Clear</button>
+            <span class="muted small">cell visits, recorded locally — works in mock too</span>
+          </div>
+          <canvas id="heatCanvas" width="480" height="330"></canvas>
+        </div>
+        <div class="tabpanel" id="panel-analytics" role="tabpanel" hidden>
+          <div id="analyticsBody"><div class="muted">Waiting for ticks…</div></div>
+        </div>
         <div class="tabpanel" id="panel-payload" role="tabpanel" hidden>
+          <div class="pane-tools">
+            <span class="muted small">showing <select id="payloadDrone" title="Which drone the payload preview follows"></select> · <span id="payloadMeta">—</span></span>
+            <button id="copyPayloadBtn" class="copybtn" title="Copy payload JSON">Copy</button>
+          </div>
           <pre id="jsonPayloadPreview">{}</pre>
         </div>
       </div>
@@ -77,7 +92,7 @@
 
     <div class="side">
       <div class="card">
-        <h2>Leaderboard</h2>
+        <div class="lb-head"><h2>Leaderboard</h2><div id="modelPills" class="lb-models"></div></div>
         <div id="leaderboard"></div>
       </div>
       <details class="card rules">
@@ -89,6 +104,7 @@
           <label>Hazard cost <input id="rule-hazard" type="number" min="0" max="50" step="1" /></label>
           <label>Batt charge <input id="rule-charge" type="number" min="0" max="100" step="1" /></label>
           <label>Pad score <input id="rule-pad" type="number" min="0" max="500" step="1" /></label>
+        <label>Pad batt <input id="rule-padbatt" type="number" min="0" max="100" step="1" /></label>
           <label>Low below <input id="rule-low" type="number" min="1" max="99" step="1" /></label>
           <label>Max hazards <input id="rule-maxobs" type="number" min="1" max="60" step="1" /></label>
         <label>Max hover <input id="rule-maxhover" type="number" min="0" max="20" step="1" /></label>

@@ -5,7 +5,7 @@
   var DELTAS = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0], hover:[0,0] };
 
   // Single source of truth for game economy. Editable via ⚙ Rules panel (no code edits).
-  var DEFAULT_RULES = { move: 5, hover: 1, wall: 5, hazard: 10, charge: 30, pad: 50, low: 30, maxObs: 10, maxHover: 3 };
+  var DEFAULT_RULES = { move: 5, hover: 1, wall: 5, hazard: 10, charge: 30, pad: 50, padBatt: 100, low: 30, maxObs: 10, maxHover: 3 };
   var RULES = {};
   try {
     var stored = JSON.parse(localStorage.getItem("drone.rules") || "{}");
@@ -74,20 +74,23 @@
       pad: (world.goals || []).map(function(g){ return cellName(g.c, g.r); }).sort(),
       batt_cells: (world.batteries || []).map(function(b){ return cellName(b.c, b.r); }).sort(),
       danger: dangerCells,
+      trail: (drone.trail || []).slice(),
       tick: world.tick
     };
     return {
       moves: MOVES.slice(),
-      instructions: "Get the PAD for +" + RULES.pad + ". Don't enter DANGER. Grab BATT below " + RULES.low +
+      instructions: "Get the PAD for +" + RULES.pad + " and battery to " + RULES.padBatt + ". Don't enter DANGER. Grab BATT below " + RULES.low +
         ". Move costs " + RULES.move + ", hover costs " + RULES.hover + ", hazard costs " + RULES.hazard +
         ". Max " + RULES.maxHover + " hovers in a row — then you must move." +
-        " Codes on open cells: P = steps to pad, B = steps to battery, N/S/E/W = direction (e.g. P3E = pad 3 east).",
+        " Codes on open cells: P = steps to pad, B = steps to battery, N/S/E/W = direction (e.g. P3E = pad 3 east)." +
+        " Avoid cells in your trail — you were just there.",
       criteria: criteria,
       stateObj: stateObj,
       stateText: "me " + stateObj.me.at + " batt " + stateObj.me.batt +
         " pad " + (stateObj.pad.join(",") || "none") +
         " batt_cells " + (stateObj.batt_cells.join(",") || "none") +
         " danger " + (dangerCells.join(",") || "none") +
+        " trail " + (stateObj.trail.join(",") || "none") +
         ". " + MOVES.map(function(m){ return m + ":" + criteria[m]; }).join(" ")
     };
   }
