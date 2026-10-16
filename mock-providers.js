@@ -5,7 +5,7 @@
   var DELTAS = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0], hover:[0,0] };
 
   // Single source of truth for game economy. Editable via ⚙ Rules panel (no code edits).
-  var DEFAULT_RULES = { move: 5, hover: 1, wall: 5, hazard: 10, charge: 30, pad: 50, padBatt: 100, low: 30, maxObs: 10, maxHover: 3 };
+  var DEFAULT_RULES = { move: 5, hover: 1, wall: 5, hazard: 10, charge: 30, pad: 50, padBatt: 100, low: 30, maxObs: 10, maxHover: 3, situLead: 10 };
   var RULES = {};
   try {
     var stored = JSON.parse(localStorage.getItem("drone.rules") || "{}");
@@ -52,6 +52,8 @@
   function buildDroneState(world, drone) {
     var idx = indexCells(world);
     var PADS = (world.goals || []).map(function(g){ return key(g.c, g.r); });
+    var GOLDS = {};
+    (world.goals || []).forEach(function(g){ if (g.gold) GOLDS[key(g.c, g.r)] = 1; });
     var isPad = function(k){ return PADS.indexOf(k) !== -1; };
     var criteria = {};
     var dangerCells = [];
@@ -66,20 +68,25 @@
       else if (idx.hazards[k]) criteria[m] = cellName(nc, nr) + " DANGER";
       else if (idx.drones[k] && !(nc === drone.c && nr === drone.r)) criteria[m] = cellName(nc, nr) + " DANGER";
       else if (idx.batteries[k]) criteria[m] = cellName(nc, nr) + " BATT";
+      else if (GOLDS[k]) criteria[m] = cellName(nc, nr) + " GOLD";
       else if (isPad(k)) criteria[m] = cellName(nc, nr) + " PAD";
       else criteria[m] = cellName(nc, nr) + " open" + gradient(nc, nr, world);
     });
+    var upcoming = (world.situations || []).map(function(s){ return { type: s.type, "in": Math.max(0, s.firesAt - world.tick) }; });
     var stateObj = {
       me: { at: cellName(drone.c, drone.r), batt: drone.battery },
       pad: (world.goals || []).map(function(g){ return cellName(g.c, g.r); }).sort(),
+      gold_pads: (world.goals || []).filter(function(g){ return g.gold; }).map(function(g){ return cellName(g.c, g.r); }).sort(),
       batt_cells: (world.batteries || []).map(function(b){ return cellName(b.c, b.r); }).sort(),
       danger: dangerCells,
       trail: (drone.trail || []).slice(),
+      upcoming: upcoming,
       tick: world.tick
     };
+    var upText = upcoming.length ? " upcoming " + upcoming.map(function(u){ return u.type + " in " + u["in"]; }).join(",") : "";
     return {
       moves: MOVES.slice(),
-      instructions: "Get the PAD for +" + RULES.pad + " and battery to " + RULES.padBatt + ". Don't enter DANGER. Grab BATT below " + RULES.low +
+      instructions: "Get the PAD for +" + RULES.pad + " and battery to " + RULES.padBatt + ". GOLD pad pays double, first claim only. Don't enter DANGER. Grab BATT below " + RULES.low +
         ". Move costs " + RULES.move + ", hover costs " + RULES.hover + ", hazard costs " + RULES.hazard +
         ". Max " + RULES.maxHover + " hovers in a row — then you must move." +
         " Codes on open cells: P = steps to pad, B = steps to battery, N/S/E/W = direction (e.g. P3E = pad 3 east)." +
@@ -88,9 +95,10 @@
       stateObj: stateObj,
       stateText: "me " + stateObj.me.at + " batt " + stateObj.me.batt +
         " pad " + (stateObj.pad.join(",") || "none") +
+        (stateObj.gold_pads.length ? " GOLD " + stateObj.gold_pads.join(",") : "") +
         " batt_cells " + (stateObj.batt_cells.join(",") || "none") +
         " danger " + (dangerCells.join(",") || "none") +
-        " trail " + (stateObj.trail.join(",") || "none") +
+        " trail " + (stateObj.trail.join(",") || "none") + upText +
         ". " + MOVES.map(function(m){ return m + ":" + criteria[m]; }).join(" ")
     };
   }
@@ -203,6 +211,7 @@
           var low = droneState.stateObj.me.batt < RULES.low;
           if (/WALL|DANGER/.test(c)) s -= 5;
           else if (/HOVER-LIMIT/.test(c)) s -= 5;
+          else if (/GOLD/.test(c)) s += 5;
           else if (/PAD/.test(c)) s += 4;
           else if (/BATT/.test(c)) s += low ? 4 : 1.5;
           else if (/open/.test(c)) s += 0.5;

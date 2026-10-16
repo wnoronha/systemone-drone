@@ -28,7 +28,9 @@
     if (!selectedIds.length && catalog.length) selectedIds = [catalog[0].id];
     saveSelected();
   }
-  var world = { cols: COLS, rows: ROWS, tick: 0, hazards: [], batteries: [], goals: [], drones: [] };
+  var world = { cols: COLS, rows: ROWS, tick: 0, hazards: [], batteries: [], goals: [], drones: [], situations: [] };
+  var SITU_ROTATION = ["storm", "cache", "gold"];
+  var situIdx = 0;
   var history = []; // [{t, scores:{modelId: score}}] capped at 200 — feeds the Analytics sparkline
   var heatFilter = "all";
   var paused = false, autoWaves = true, lastWave = performance.now(), lastDecision = 0;
@@ -87,6 +89,8 @@
   var allDeadNotified = false;
   function restartRace(){
     allDeadNotified = false;
+    world.situations = [];
+    world.goals.forEach(function(g){ g.gold = false; });
     makeDrones(true);
     renderPills(); renderLB();
     log("🏁 race restarted — batteries full, scores kept");
@@ -294,7 +298,11 @@
         '<span>crash<b>'+s.crashes+'</b></span><span>⚡<b>'+s.pickups+'</b></span></div>'+
         '<div class="lb-stats net"><span>calls<b>'+s.calls+'</b></span><span>avg<b>'+avg+'ms</b></span><span>last<b>'+(d.lastMs!=null?d.lastMs+"ms":"—")+'</b></span><span class="lb-del" data-model="'+d.model+'" title="Remove model">Delete</span></div></div>';
     }).join("") || '<div class="muted">No models enabled.</div>';
-    arenaMeta.textContent = "tick "+world.tick+" · 16×11 · "+world.hazards.length+" hazards · "+world.batteries.length+" batteries · "+world.goals.length+" pads";
+    var situTxt = world.situations.map(function(s){
+      var icon = s.type === "storm" ? "⛈" : (s.type === "cache" ? "🔋" : "✨");
+      return icon + " " + s.type + " in " + Math.max(0, s.firesAt - world.tick);
+    }).join(" · ");
+    arenaMeta.textContent = "tick "+world.tick+" · 16×11 · "+world.hazards.length+" hazards · "+world.batteries.length+" batteries · "+world.goals.length+" pads" + (situTxt ? " · " + situTxt : "");
     if (tickEl) tickEl.textContent = world.tick;
   }
 
@@ -401,6 +409,7 @@
       if (at(world.goals, nc, nr) === -1 && at(world.batteries, nc, nr) === -1) { h.c = nc; h.r = nr; }
     });
     world.tick++;
+    tickSituations();
     var snap = { t: world.tick, s: {} };
     world.drones.forEach(function(d){ snap.s[d.model] = d.score; });
     history.push(snap);
@@ -410,7 +419,52 @@
     renderHeatmap();
   }
 
+  function fireSituation(s){
+    var P = window.DroneProviders;
+    if (s.type === "storm") {
+      var before = world.hazards.length;
+      spawn(4, "hazards");
+      log("⛈ <b>storm hits:</b> +" + (world.hazards.length - before) + " hazards");
+    } else if (s.type === "cache") {
+      var ex = occupiedSet(), placed = [];
+      var seed = freeCell(ex);
+      if (seed) {
+        ex[seed.c + "," + seed.r] = 1; world.batteries.push(seed); placed.push(P.cellName(seed.c, seed.r));
+        [[1,0],[-1,0],[0,1],[0,-1]].forEach(function(o){
+          if (placed.length >= 3) return;
+          var nc = seed.c + o[0], nr = seed.r + o[1];
+          if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS || ex[nc + "," + nr]) return;
+          ex[nc + "," + nr] = 1; world.batteries.push({ c: nc, r: nr }); placed.push(P.cellName(nc, nr));
+        });
+      }
+      lastWave = performance.now();
+      log("🔋 <b>cache lands:</b> " + (placed.join(", ") || "no room"));
+    } else if (s.type === "gold") {
+      var n = 0;
+      world.goals.forEach(function(g){ if (!g.gold) { g.gold = true; n++; } });
+      log("✨ <b>gold rush:</b> " + n + " pad" + (n === 1 ? "" : "s") + " pay double — first claim only");
+    }
+  }
   function at(list, c, r){ for(var i=list.length-1;i>=0;i--) if(list[i].c===c&&list[i].r===r) return i; return -1; }
+  function tickSituations(){
+    var R = rules();
+    var lead = R.situLead == null ? 10 : R.situLead;
+    var alive = world.drones.some(function(d){ return !d.dead; });
+    // fire due
+    for (var i = world.situations.length - 1; i >= 0; i--) {
+      if (world.situations[i].firesAt <= world.tick) {
+        fireSituation(world.situations[i]);
+        world.situations.splice(i, 1);
+      }
+    }
+    // schedule next when quiet
+    if (alive && !world.situations.length && Math.random() < 0.3) {
+      var type = SITU_ROTATION[situIdx % SITU_ROTATION.length]; situIdx++;
+      world.situations.push({ type: type, firesAt: world.tick + lead });
+      var names = { storm: "⛈ storm", cache: "🔋 cache", gold: "✨ gold rush" };
+      log("📢 situation queued: <b>" + (names[type] || type) + "</b> in " + lead);
+    }
+  }
 
   function applyMove(d, move){
     var P = window.DroneProviders, R = rules(), dx = P.DELTAS[move][0], dy = P.DELTAS[move][1];
@@ -430,8 +484,10 @@
     if(bi!==-1){ world.batteries.splice(bi,1); d.battery=Math.min(100,d.battery+R.charge); stats[d.model].pickups++; log("⚡ <b style='color:"+d.color+"'>"+d.label+"</b> +"+R.charge+" @ "+P.cellName(d.c,d.r)+" (now "+d.battery+")"); }
     var gi = at(world.goals, d.c, d.r);
     if(gi!==-1){
-      world.goals.splice(gi,1); d.score+=R.pad; d.battery=Math.min(100, R.padBatt == null ? 100 : R.padBatt); stats[d.model].pads = (stats[d.model].pads||0)+1;
-      log("🛬 <b style='color:"+d.color+"'>"+d.label+"</b> PAD +"+R.pad+" + batt "+d.battery+" @ "+P.cellName(d.c,d.r));
+      var claimed = world.goals[gi];
+      var mult = claimed.gold ? 2 : 1;
+      world.goals.splice(gi,1); d.score+=R.pad*mult; d.battery=Math.min(100, R.padBatt == null ? 100 : R.padBatt); stats[d.model].pads = (stats[d.model].pads||0)+1;
+      log((claimed.gold ? "🥇" : "🛬") + " <b style='color:"+d.color+"'>"+d.label+"</b> " + (claimed.gold ? "GOLD " : "PAD ") + "+"+(R.pad*mult)+" + batt "+d.battery+" @ "+P.cellName(d.c,d.r));
       var cell = freeCell(occupiedSet()); if (cell) world.goals.push(cell); // pad respawns elsewhere
     }
     if(at(world.hazards, d.c, d.r)!==-1){ d.battery-=R.hazard; stats[d.model].crashes++; d.score=Math.max(0,d.score-5); log("💥 <b style='color:"+d.color+"'>"+d.label+"</b> hazard −"+R.hazard+" @ "+P.cellName(d.c,d.r)+" (now "+d.battery+")"); }
@@ -471,8 +527,12 @@
       ctx.fillStyle=fill; ctx.fillRect(x+3,y+3,CELL-6,CELL-6);
       if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=2; ctx.strokeRect(x+3,y+3,CELL-6,CELL-6); }
     }
-    world.goals.forEach(function(g){ cellBox(g.c,g.r,"#1e3a8a","#60a5fa");
-      ctx.fillStyle="#bfdbfe"; ctx.font="bold 11px sans-serif"; ctx.textAlign="center"; ctx.fillText("PAD", g.c*CELL+CELL/2, g.r*CELL+CELL/2+4); ctx.textAlign="left"; });
+    world.goals.forEach(function(g){
+      if (g.gold) { cellBox(g.c,g.r,"#713f12","#fbbf24");
+        ctx.fillStyle="#fef3c7"; ctx.font="bold 11px sans-serif"; ctx.textAlign="center"; ctx.fillText("GOLD", g.c*CELL+CELL/2, g.r*CELL+CELL/2+4); ctx.textAlign="left"; }
+      else { cellBox(g.c,g.r,"#1e3a8a","#60a5fa");
+        ctx.fillStyle="#bfdbfe"; ctx.font="bold 11px sans-serif"; ctx.textAlign="center"; ctx.fillText("PAD", g.c*CELL+CELL/2, g.r*CELL+CELL/2+4); ctx.textAlign="left"; }
+    });
     world.batteries.forEach(function(b){ cellBox(b.c,b.r,"#3f6212","#a3e635");
       ctx.fillStyle="#ecfccb"; ctx.font="bold 15px sans-serif"; ctx.textAlign="center"; ctx.fillText("⚡", b.c*CELL+CELL/2, b.r*CELL+CELL/2+5); ctx.textAlign="left"; });
     world.hazards.forEach(function(h){ cellBox(h.c,h.r,"#7f1d1d","#f87171");
@@ -621,7 +681,7 @@
         log("⚙ rule <b>"+field+"</b> → "+v+" (next tick uses it)");
       });
     }
-    ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover"].forEach(function(pair){
+    ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover", "rule-situlead/situLead"].forEach(function(pair){
       var parts = pair.split("/"); bindRule(parts[0], parts[1]);
     });
     var rb = $("rulesResetBtn");
@@ -629,7 +689,7 @@
       var D = window.DroneProviders.DEFAULT_RULES;
       Object.keys(D).forEach(function(k){ window.DroneProviders.RULES[k] = D[k]; });
       window.DroneProviders.saveRules();
-      ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover"].forEach(function(pair){
+      ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover", "rule-situlead/situLead"].forEach(function(pair){
         var parts = pair.split("/"); var el = $(parts[0]); if (el) el.value = D[parts[1]];
       });
       refreshRulesLabels(); renderLB();
