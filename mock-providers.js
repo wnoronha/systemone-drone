@@ -102,6 +102,7 @@
         " Priority: GOLD, then PAD, then BATT, then open." +
         " GOLD pad pays double (" + RULES.pad * 2 + "), first claim only. PAD pays " + RULES.pad + " and sets battery to " + RULES.padBatt + "." +
         " Never enter DANGER or WALL while a GOLD, PAD, BATT, or open move exists — if all five moves are blocked, hover." +
+        " BATT gives +" + RULES.charge + ". Bumping a wall costs " + RULES.wall + "." +
         " Move costs " + RULES.move + ", hover costs " + RULES.hover + ", hazard costs " + RULES.hazard +
         ". Max " + RULES.maxHover + " hovers in a row — then you must move." +
         " Codes on open cells: P = steps to pad, B = steps to battery, N/S/E/W = direction (e.g. P3E = pad 3 east)." +
