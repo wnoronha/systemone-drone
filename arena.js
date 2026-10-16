@@ -419,26 +419,41 @@
     renderHeatmap();
   }
 
+  // 3x3 block placement on the freest spot: tries random centers, keeps the
+  // first block with 5+ free cells, fills every free cell up to the cap.
+  function placeBlock(kind){
+    var pool = kind === "hazards" ? world.hazards : world.batteries;
+    var cap = kind === "hazards"
+      ? Math.max(0, rules().maxObs - pool.length)
+      : Math.max(0, 9 - pool.length);
+    if (cap <= 0) return [];
+    var ex = occupiedSet(), placed = [], tries = 0, need = Math.min(5, cap);
+    while (placed.length < need && tries < 20) {
+      tries++;
+      var cc = 1 + rnd(COLS - 2), cr = 1 + rnd(ROWS - 2), free = [];
+      for (var oy = -1; oy <= 1; oy++) for (var ox = -1; ox <= 1; ox++) {
+        var bx = cc + ox, by = cr + oy;
+        if (!ex[bx + "," + by]) free.push({ c: bx, r: by });
+      }
+      if (free.length >= need) placed = free;
+    }
+    placed = placed.slice(0, cap);
+    placed.forEach(function(cell){
+      ex[cell.c + "," + cell.r] = 1;
+      pool.push(cell);
+    });
+    lastWave = performance.now();
+    return placed;
+  }
   function fireSituation(s){
     var P = window.DroneProviders;
     if (s.type === "storm") {
-      var before = world.hazards.length;
-      spawn(4, "hazards");
-      log("⛈ <b>storm hits:</b> +" + (world.hazards.length - before) + " hazards");
+      var dropped = placeBlock("hazards");
+      log(dropped.length ? "⛈ <b>storm hits:</b> " + dropped.length + "-cell hazard block" : "⛈ <b>storm fizzles</b> — at hazard cap");
     } else if (s.type === "cache") {
-      var ex = occupiedSet(), placed = [];
-      var seed = freeCell(ex);
-      if (seed) {
-        ex[seed.c + "," + seed.r] = 1; world.batteries.push(seed); placed.push(P.cellName(seed.c, seed.r));
-        [[1,0],[-1,0],[0,1],[0,-1]].forEach(function(o){
-          if (placed.length >= 3) return;
-          var nc = seed.c + o[0], nr = seed.r + o[1];
-          if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS || ex[nc + "," + nr]) return;
-          ex[nc + "," + nr] = 1; world.batteries.push({ c: nc, r: nr }); placed.push(P.cellName(nc, nr));
-        });
-      }
-      lastWave = performance.now();
-      log("🔋 <b>cache lands:</b> " + (placed.join(", ") || "no room"));
+      var placed = placeBlock("batteries");
+      var names = placed.map(function(cell){ return P.cellName(cell.c, cell.r); });
+      log(placed.length ? "🔋 <b>cache lands:</b> " + placed.length + "-cell block @ " + names.join(", ") : "🔋 <b>cache fizzles</b> — no room");
     } else if (s.type === "gold") {
       var n = 0;
       world.goals.forEach(function(g){ if (!g.gold) { g.gold = true; n++; } });
