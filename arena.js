@@ -422,6 +422,7 @@
     // (was: 1 random step per tick — too much board churn)
     world.tick++;
     tickSituations();
+    spawn(2, "hazards"); // steady drip: tops up to the maxObs cap, decay clears the old
     var snap = { t: world.tick, s: {} };
     world.drones.forEach(function(d){ snap.s[d.model] = d.score; });
     history.push(snap);
