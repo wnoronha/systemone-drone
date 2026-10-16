@@ -582,7 +582,6 @@
         ctx.fillStyle="#ecfccb"; ctx.font="bold 15px sans-serif"; ctx.textAlign="center"; ctx.fillText("⚡", b.c*CELL+CELL/2, b.r*CELL+CELL/2+5); ctx.textAlign="left";
       });
       world.hazards.forEach(function(h){
-        if (!alive(h, R.hazardLife)) return;
         cellBox(h.c,h.r,"#7f1d1d","#f87171");
         ctx.fillStyle="#fecaca"; ctx.font="bold 14px sans-serif"; ctx.textAlign="center"; ctx.fillText("✕", h.c*CELL+CELL/2, h.r*CELL+CELL/2+5); ctx.textAlign="left";
       });
