@@ -33,7 +33,8 @@
   var situIdx = 0;
   var history = []; // [{t, scores:{modelId: score}}] capped at 200 — feeds the Analytics sparkline
   var heatFilter = "all";
-  var paused = false, autoWaves = true, lastWave = performance.now(), lastDecision = 0;
+  var paused = false, autoWaves = false, lastWave = performance.now(), lastDecision = 0;
+  var situationsEnabled = false; // parked: queue nothing; fire/ghost code stays dormant
   var liveMode = false; // false = mock always; true = OpenRouter when key present
   var verboseTrace = true; // per-decision 🧠 lines in Events
   var payloadFollow = null; // model id the payload tab follows; defaults to first drone
@@ -493,7 +494,8 @@
       }
     }
     // schedule next when quiet (reserve the landing zone for the ghost preview)
-    if (alive && !world.situations.length && Math.random() < 0.3) {
+    // parked while situationsEnabled is false — queue stays empty, fire/ghost code dormant
+    if (alive && situationsEnabled && !world.situations.length && Math.random() < 0.3) {
       var type = SITU_ROTATION[situIdx % SITU_ROTATION.length]; situIdx++;
       var entry = { type: type, firesAt: world.tick + lead };
       if (type === "storm" || type === "cache") entry.cells = findBlock();
