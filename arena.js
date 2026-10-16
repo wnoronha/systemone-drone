@@ -29,7 +29,7 @@
     saveSelected();
   }
   var world = { cols: COLS, rows: ROWS, tick: 0, hazards: [], batteries: [], goals: [], drones: [], situations: [] };
-  var SITU_ROTATION = ["gold", "blocks"];
+  var SITU_ROTATION = ["gold"];
   var SITU_ICON = { gold: "✨", blocks: "🧱" };
   var situIdx = 0;
   var lastFireAt = -1000; // spacing: next queues only `lead` ticks after the last firing
