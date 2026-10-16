@@ -92,19 +92,22 @@
       tick: world.tick
     };
     var upText = upcoming.length ? " upcoming " + upcoming.map(function(u){ return u.type + " in " + u["in"]; }).join(",") : "";
+    var urge;
+    if (battLevel === "critical") urge = "BATTERY CRITICAL — ~" + movesLeft + " moves left. Drop the pad hunt. Take BATT now or die.";
+    else if (battLevel === "warn") urge = "Battery warning — take BATT if adjacent, otherwise keep hunting PAD.";
+    else urge = "Grab BATT below " + RULES.low + ".";
     return {
       moves: MOVES.slice(),
-      instructions: "Get the PAD for +" + RULES.pad + " and battery to " + RULES.padBatt + ". GOLD pad pays double, first claim only. Don't enter DANGER." +
-        (battLevel === "critical"
-          ? " BATTERY CRITICAL — ~" + movesLeft + " moves left. Ignore pads, grab BATT now or die."
-          : (battLevel === "warn"
-            ? " Battery warning — prefer BATT over PAD, plan charging soon."
-            : " Grab BATT below " + RULES.low + ".")) +
-        ". Move costs " + RULES.move + ", hover costs " + RULES.hover + ", hazard costs " + RULES.hazard +
+      instructions: urge +
+        " Priority: GOLD, then PAD, then BATT, then open." +
+        " GOLD pad pays double (" + RULES.pad * 2 + "), first claim only. PAD pays " + RULES.pad + " and sets battery to " + RULES.padBatt + "." +
+        " Never enter DANGER or WALL while a GOLD, PAD, BATT, or open move exists — if all five moves are blocked, hover." +
+        " Move costs " + RULES.move + ", hover costs " + RULES.hover + ", hazard costs " + RULES.hazard +
         ". Max " + RULES.maxHover + " hovers in a row — then you must move." +
         " Codes on open cells: P = steps to pad, B = steps to battery, N/S/E/W = direction (e.g. P3E = pad 3 east)." +
-        " Avoid cells in your trail — you were just there." +
-        " ! means expiring within 8 ticks.",
+        " Avoid cells in your trail — you were just there, going back wastes moves." +
+        " ! means expiring within 8 ticks." +
+        (upcoming.length ? " Incoming: " + upcoming.map(function(u){ return u.type + " in " + u["in"] + (u.type === "gold" ? " (a pad pays double)" : ""); }).join(", ") + "." : ""),
       criteria: criteria,
       stateObj: stateObj,
       stateText: "me " + stateObj.me.at + " batt " + stateObj.me.batt +
