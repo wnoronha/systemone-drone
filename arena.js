@@ -29,12 +29,14 @@
     saveSelected();
   }
   var world = { cols: COLS, rows: ROWS, tick: 0, hazards: [], batteries: [], goals: [], drones: [], situations: [] };
-  var SITU_ROTATION = ["gold"];
+  var SITU_ROTATION = ["gold", "blocks"];
+  var SITU_ICON = { gold: "✨", blocks: "🧱" };
   var situIdx = 0;
+  var lastFireAt = -1000; // spacing: next queues only `lead` ticks after the last firing
   var history = []; // [{t, scores:{modelId: score}}] capped at 200 — feeds the Analytics sparkline
   var heatFilter = "all";
   var paused = false, autoWaves = true, lastWave = performance.now(), lastDecision = 0;
-  var situationsEnabled = false; // parked: queue nothing; fire/ghost code stays dormant
+  var situationsEnabled = true; // gold + hazard-block rotation, one at a time
   var liveMode = false; // false = mock always; true = OpenRouter when key present
   var verboseTrace = true; // per-decision 🧠 lines in Events
   var payloadFollow = null; // model id the payload tab follows; defaults to first drone
@@ -91,6 +93,7 @@
   function restartRace(){
     allDeadNotified = false;
     world.situations = [];
+    lastFireAt = world.tick;
     world.goals.forEach(function(g){ g.gold = false; });
     makeDrones(true);
     renderPills(); renderLB();
@@ -315,7 +318,7 @@
         '<div class="lb-stats net"><span>calls<b>'+s.calls+'</b></span><span>avg<b>'+avg+'ms</b></span><span>last<b>'+(d.lastMs!=null?d.lastMs+"ms":"—")+'</b></span><span class="lb-del" data-model="'+d.model+'" title="Remove model">Delete</span></div></div>';
     }).join("") || '<div class="muted">No models enabled.</div>';
     var situTxt = world.situations.map(function(s){
-      var icon = s.type === "storm" ? "⛈" : (s.type === "cache" ? "🔋" : "✨");
+      var icon = s.type === "blocks" ? "🧱" : (s.type === "cache" ? "🔋" : "✨");
       return icon + " " + s.type + " in " + Math.max(0, s.firesAt - world.tick);
     }).join(" · ");
     arenaMeta.textContent = "tick "+world.tick+" · 16×11 · "+world.hazards.length+" hazards · "+world.batteries.length+" batteries · "+world.goals.length+" pads" + (situTxt ? " · " + situTxt : "");
@@ -465,9 +468,11 @@
   }
   function fireSituation(s){
     var P = window.DroneProviders;
-    if (s.type === "storm") {
-      var dropped = placeBlock("hazards", s.cells || []);
-      log(dropped.length ? "⛈ <b>storm hits:</b> " + dropped.length + "-cell hazard block" : "⛈ <b>storm fizzles</b> — zone taken or at cap");
+    if (s.type === "blocks") {
+      var a = placeBlock("hazards", s.cells || []);
+      var b = placeBlock("hazards", findBlock());
+      var n = a.length + b.length;
+      log(n ? "🧱 <b>blocks drop:</b> " + n + " hazard cells in 2 blocks" : "🧱 <b>blocks fizzle</b> — no room or at cap");
     } else if (s.type === "cache") {
       var placed = placeBlock("batteries", s.cells || []);
       var names = placed.map(function(cell){ return P.cellName(cell.c, cell.r); });
@@ -488,16 +493,17 @@
       if (world.situations[i].firesAt <= world.tick) {
         fireSituation(world.situations[i]);
         world.situations.splice(i, 1);
+        lastFireAt = world.tick;
       }
     }
-    // schedule next when quiet (reserve the landing zone for the ghost preview)
-    // parked while situationsEnabled is false — queue stays empty, fire/ghost code dormant
-    if (alive && situationsEnabled && !world.situations.length && Math.random() < 0.3) {
+    // schedule next when quiet AND spaced: only one active at a time, with a
+    // `lead`-tick breather after each firing so it never feels chaotic
+    if (alive && situationsEnabled && !world.situations.length && (world.tick - lastFireAt) >= lead && Math.random() < 0.3) {
       var type = SITU_ROTATION[situIdx % SITU_ROTATION.length]; situIdx++;
       var entry = { type: type, firesAt: world.tick + lead };
-      if (type === "storm" || type === "cache") entry.cells = findBlock();
+      if (type === "blocks" || type === "cache") entry.cells = findBlock();
       world.situations.push(entry);
-      var names = { storm: "⛈ storm", cache: "🔋 cache", gold: "✨ gold rush" };
+      var names = { blocks: "🧱 hazard blocks", cache: "🔋 cache", gold: "✨ gold rush" };
       log("📢 situation queued: <b>" + (names[type] || type) + "</b> in " + lead);
     }
   }
@@ -590,7 +596,7 @@
     world.situations.forEach(function(s){
       if (!s.cells || !s.cells.length) return;
       var n = Math.max(0, s.firesAt - world.tick);
-      var col = s.type === "storm" ? "#f87171" : "#a3e635";
+      var col = s.type === "blocks" ? "#f87171" : "#a3e635";
       s.cells.forEach(function(cell, i){
         var x = cell.c*CELL, y = cell.r*CELL;
         ctx.globalAlpha = 0.35;
@@ -664,7 +670,7 @@
       log("🧹 heatmap cleared");
     };
     makeDrones();
-    renderLB();
+    spawn(4,"hazards"); spawn(3,"batteries"); spawn(1,"goals"); renderLB();
     var P = window.DroneProviders;
     renderPayloadSelect();
     var fol = followedDrone();
