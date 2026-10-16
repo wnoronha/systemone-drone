@@ -4,6 +4,8 @@ N drones fly on one shared 16x11 grid. Each drone is controlled by a System One 
 
 Live demo: https://wnoronha.github.io/systemone-drone
 
+![systemone-drone arena](demo.png)
+
 ## Run
 
 ```
@@ -22,9 +24,10 @@ Use + Models to add or remove decision models.
 
 ## Rules
 
-- Move costs 5 battery. Hover costs 1. Wall hit costs 5. Hazard costs 10.
-- Battery cell gives +30. Landing pad gives +50 and moves to a new cell.
-- Battery below 30 is LOW. Battery at 0 means the drone is dead.
+- Move costs 3 battery. Hover costs 1. Wall hit costs 5. Hazard costs 10.
+- Battery cell gives +30. Landing pad gives +50 and refills battery to 100, then moves to a new cell.
+- Battery below 50 is a warning. Below 30 is critical. At 0 the drone is dead.
 - Max 3 hovers in a row. Then the drone must move.
 - First drone to a pad cell claims it. A late drone hovers.
+- Gold rush: one pad pays double, first claim only.
 - Change all numbers in the Rules panel. No code change is necessary.
