@@ -5,7 +5,7 @@
   var DELTAS = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0], hover:[0,0] };
 
   // Single source of truth for game economy. Editable via ⚙ Rules panel (no code edits).
-  var DEFAULT_RULES = { move: 3, hover: 1, wall: 5, hazard: 10, charge: 30, pad: 50, padBatt: 100, low: 30, maxObs: 8, maxHover: 3, situLead: 10, battLife: 25, hazardLife: 10 };
+  var DEFAULT_RULES = { move: 3, hover: 1, wall: 5, hazard: 10, charge: 30, pad: 50, padBatt: 100, low: 30, warn: 50, maxObs: 8, maxHover: 3, situLead: 10, battLife: 25, hazardLife: 10 };
   var RULES = {};
   try {
     var stored = JSON.parse(localStorage.getItem("drone.rules") || "{}");
@@ -49,6 +49,8 @@
   }
   // Per-drone view: compact ticks-based state. 1 entity = 1 cell.
   // danger = hazards + live rivals merged. Open cells carry a 2-step gradient.
+  // Battery speaks in two tiers: WARN below warn (plan charging), CRITICAL below
+  // low (drop everything, grab BATT) — same thresholds for every model.
   function buildDroneState(world, drone) {
     var idx = indexCells(world);
     var PADS = (world.goals || []).map(function(g){ return key(g.c, g.r); });
@@ -77,8 +79,10 @@
       else criteria[m] = cellName(nc, nr) + " open" + gradient(nc, nr, world);
     });
     var upcoming = (world.situations || []).map(function(s){ return { type: s.type, "in": Math.max(0, s.firesAt - world.tick) }; });
+    var battLevel = drone.battery < RULES.low ? "critical" : (drone.battery < RULES.warn ? "warn" : "ok");
+    var movesLeft = Math.max(0, Math.ceil(drone.battery / Math.max(1, RULES.move)));
     var stateObj = {
-      me: { at: cellName(drone.c, drone.r), batt: drone.battery },
+      me: { at: cellName(drone.c, drone.r), batt: drone.battery, battLevel: battLevel, movesLeft: movesLeft },
       pad: (world.goals || []).map(function(g){ return cellName(g.c, g.r); }).sort(),
       gold_pads: (world.goals || []).filter(function(g){ return g.gold; }).map(function(g){ return cellName(g.c, g.r); }).sort(),
       batt_cells: (world.batteries || []).map(function(b){ return cellName(b.c, b.r); }).sort(),
@@ -90,7 +94,12 @@
     var upText = upcoming.length ? " upcoming " + upcoming.map(function(u){ return u.type + " in " + u["in"]; }).join(",") : "";
     return {
       moves: MOVES.slice(),
-      instructions: "Get the PAD for +" + RULES.pad + " and battery to " + RULES.padBatt + ". GOLD pad pays double, first claim only. Don't enter DANGER. Grab BATT below " + RULES.low +
+      instructions: "Get the PAD for +" + RULES.pad + " and battery to " + RULES.padBatt + ". GOLD pad pays double, first claim only. Don't enter DANGER." +
+        (battLevel === "critical"
+          ? " BATTERY CRITICAL — ~" + movesLeft + " moves left. Ignore pads, grab BATT now or die."
+          : (battLevel === "warn"
+            ? " Battery warning — prefer BATT over PAD, plan charging soon."
+            : " Grab BATT below " + RULES.low + ".")) +
         ". Move costs " + RULES.move + ", hover costs " + RULES.hover + ", hazard costs " + RULES.hazard +
         ". Max " + RULES.maxHover + " hovers in a row — then you must move." +
         " Codes on open cells: P = steps to pad, B = steps to battery, N/S/E/W = direction (e.g. P3E = pad 3 east)." +

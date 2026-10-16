@@ -614,6 +614,7 @@
     });
     world.drones.forEach(function(d){
       var R = rules();
+      var warnAt = (R.warn == null ? 50 : R.warn);
       var x=d.c*CELL, y=d.r*CELL;
       cellBox(d.c,d.r, d.dead?"#222c44":d.color+"33", d.dead?"#555":d.color);
       ctx.globalAlpha = d.dead?0.4:1;
@@ -621,7 +622,7 @@
       ctx.beginPath(); ctx.arc(d.px, d.py-2, 11, 0, 7); ctx.fill();
       ctx.fillStyle="#0b0e14"; ctx.font="bold 10px sans-serif"; ctx.textAlign="center"; ctx.fillText(d.label[0], d.px, d.py+2); ctx.textAlign="left";
       ctx.globalAlpha = 1;
-      ctx.fillStyle = d.dead?"#f87171":(d.battery<R.low?"#fbbf24":"#e8ecf4");
+      ctx.fillStyle = d.dead?"#f87171":(d.battery<R.low?"#f87171":(d.battery<warnAt?"#fbbf24":"#e8ecf4"));
       ctx.font="bold 10px monospace"; ctx.textAlign="center"; ctx.fillText(d.battery+"", x+CELL/2, y+CELL-8); ctx.textAlign="left";
       if(!d.dead && d.battery<R.low){ ctx.fillStyle="#fbbf24"; ctx.font="bold 9px sans-serif"; ctx.textAlign="center"; ctx.fillText("LOW", x+CELL/2, y+13); ctx.textAlign="left"; }
     });
@@ -757,7 +758,7 @@
         log("⚙ rule <b>"+field+"</b> → "+v+" (next tick uses it)");
       });
     }
-    ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover", "rule-situlead/situLead", "rule-battlife/battLife", "rule-hazardlife/hazardLife"].forEach(function(pair){
+    ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-warn/warn", "rule-maxobs/maxObs", "rule-maxhover/maxHover", "rule-situlead/situLead", "rule-battlife/battLife", "rule-hazardlife/hazardLife"].forEach(function(pair){
       var parts = pair.split("/"); bindRule(parts[0], parts[1]);
     });
     var rb = $("rulesResetBtn");
@@ -765,7 +766,7 @@
       var D = window.DroneProviders.DEFAULT_RULES;
       Object.keys(D).forEach(function(k){ window.DroneProviders.RULES[k] = D[k]; });
       window.DroneProviders.saveRules();
-      ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover", "rule-situlead/situLead", "rule-battlife/battLife", "rule-hazardlife/hazardLife"].forEach(function(pair){
+      ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-warn/warn", "rule-maxobs/maxObs", "rule-maxhover/maxHover", "rule-situlead/situLead", "rule-battlife/battLife", "rule-hazardlife/hazardLife"].forEach(function(pair){
         var parts = pair.split("/"); var el = $(parts[0]); if (el) el.value = D[parts[1]];
       });
       refreshRulesLabels(); renderLB();
