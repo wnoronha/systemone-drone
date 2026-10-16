@@ -5,7 +5,7 @@
   var DELTAS = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0], hover:[0,0] };
 
   // Single source of truth for game economy. Editable via ⚙ Rules panel (no code edits).
-  var DEFAULT_RULES = { move: 5, hover: 1, wall: 5, hazard: 10, charge: 30, pad: 50, padBatt: 100, low: 30, maxObs: 10, maxHover: 3, situLead: 10 };
+  var DEFAULT_RULES = { move: 5, hover: 1, wall: 5, hazard: 10, charge: 30, pad: 50, padBatt: 100, low: 30, maxObs: 10, maxHover: 3, situLead: 10, battLife: 30, hazardLife: 40 };
   var RULES = {};
   try {
     var stored = JSON.parse(localStorage.getItem("drone.rules") || "{}");
@@ -63,11 +63,15 @@
     MOVES.forEach(function (m) {
       var nc = drone.c + DELTAS[m][0], nr = drone.r + DELTAS[m][1];
       var k = key(nc, nr);
+      function dying(obj, life) {
+        if (!life) return false;
+        return world.tick - (obj.born || 0) >= life - 8;
+      }
       if (nc < 0 || nc >= world.cols || nr < 0 || nr >= world.rows) criteria[m] = "WALL";
       else if (m === "hover" && (drone.hoverStreak || 0) >= RULES.maxHover) criteria[m] = cellName(nc, nr) + " HOVER-LIMIT — must move";
-      else if (idx.hazards[k]) criteria[m] = cellName(nc, nr) + " DANGER";
+      else if (idx.hazards[k]) criteria[m] = cellName(nc, nr) + " DANGER" + (dying(idx.hazards[k], RULES.hazardLife) ? "!" : "");
       else if (idx.drones[k] && !(nc === drone.c && nr === drone.r)) criteria[m] = cellName(nc, nr) + " DANGER";
-      else if (idx.batteries[k]) criteria[m] = cellName(nc, nr) + " BATT";
+      else if (idx.batteries[k]) criteria[m] = cellName(nc, nr) + " BATT" + (dying(idx.batteries[k], RULES.battLife) ? "!" : "");
       else if (GOLDS[k]) criteria[m] = cellName(nc, nr) + " GOLD";
       else if (isPad(k)) criteria[m] = cellName(nc, nr) + " PAD";
       else criteria[m] = cellName(nc, nr) + " open" + gradient(nc, nr, world);
@@ -90,7 +94,8 @@
         ". Move costs " + RULES.move + ", hover costs " + RULES.hover + ", hazard costs " + RULES.hazard +
         ". Max " + RULES.maxHover + " hovers in a row — then you must move." +
         " Codes on open cells: P = steps to pad, B = steps to battery, N/S/E/W = direction (e.g. P3E = pad 3 east)." +
-        " Avoid cells in your trail — you were just there.",
+        " Avoid cells in your trail — you were just there." +
+        " ! means expiring within 8 ticks.",
       criteria: criteria,
       stateObj: stateObj,
       stateText: "me " + stateObj.me.at + " batt " + stateObj.me.batt +

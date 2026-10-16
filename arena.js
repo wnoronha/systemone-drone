@@ -101,8 +101,23 @@
     if (kind === "batteries") n = Math.min(n, Math.max(0, 6 - world.batteries.length));
     if (kind === "goals") n = Math.min(n, Math.max(0, 2 - world.goals.length));
     var ex = occupiedSet();
-    for (var i=0;i<n;i++){ var cell = freeCell(ex); if(!cell) return; ex[cell.c+","+cell.r]=1; world[kind].push(cell); }
+    for (var i=0;i<n;i++){ var cell = freeCell(ex); if(!cell) return; ex[cell.c+","+cell.r]=1; cell.born = world.tick; world[kind].push(cell); }
     lastWave = performance.now();
+  }
+  // Age-based decay: unclaimed batteries and ambient hazards rot away so the
+  // board breathes (waves add, age removes). Pads are exempt. 0 = immortal.
+  function decayEntities(){
+    var R = rules();
+    function rot(list, life){
+      if (!life) return 0;
+      var n = 0;
+      for (var i = list.length - 1; i >= 0; i--) {
+        if (world.tick - (list[i].born || 0) >= life) { list.splice(i, 1); n++; }
+      }
+      return n;
+    }
+    var b = rot(world.batteries, R.battLife), h = rot(world.hazards, R.hazardLife);
+    if (b || h) renderLB();
   }
 
   function renderPills(){
@@ -444,6 +459,7 @@
     var placed = cells.filter(function(cell){ return !ex[cell.c + "," + cell.r]; }).slice(0, cap);
     placed.forEach(function(cell){
       ex[cell.c + "," + cell.r] = 1;
+      cell.born = world.tick;
       pool.push(cell);
     });
     lastWave = performance.now();
@@ -520,6 +536,7 @@
   function frame(now){
     var dt = Math.min(0.05,(now-lastT)/1000); lastT = now; pulse += dt;
     if(!paused){
+      decayEntities();
       // smooth glide: pixel pos eases toward logical cell center — never halts on lines
       world.drones.forEach(function(d){
         var gx = (d.c+0.5)*CELL, gy = (d.r+0.5)*CELL, k = Math.min(1, dt*5);
@@ -554,10 +571,23 @@
       else { cellBox(g.c,g.r,"#1e3a8a","#60a5fa");
         ctx.fillStyle="#bfdbfe"; ctx.font="bold 11px sans-serif"; ctx.textAlign="center"; ctx.fillText("PAD", g.c*CELL+CELL/2, g.r*CELL+CELL/2+4); ctx.textAlign="left"; }
     });
-    world.batteries.forEach(function(b){ cellBox(b.c,b.r,"#3f6212","#a3e635");
-      ctx.fillStyle="#ecfccb"; ctx.font="bold 15px sans-serif"; ctx.textAlign="center"; ctx.fillText("⚡", b.c*CELL+CELL/2, b.r*CELL+CELL/2+5); ctx.textAlign="left"; });
-    world.hazards.forEach(function(h){ cellBox(h.c,h.r,"#7f1d1d","#f87171");
-      ctx.fillStyle="#fecaca"; ctx.font="bold 14px sans-serif"; ctx.textAlign="center"; ctx.fillText("✕", h.c*CELL+CELL/2, h.r*CELL+CELL/2+5); ctx.textAlign="left"; });
+    (function(){
+      var R = rules(), blink = Math.floor(performance.now() / 350) % 2 === 0;
+      function alive(o, life) {
+        if (!life) return true;
+        return world.tick - (o.born || 0) < life - 8 || blink;
+      }
+      world.batteries.forEach(function(b){
+        if (!alive(b, R.battLife)) return; // blink out on expiring ticks
+        cellBox(b.c,b.r,"#3f6212","#a3e635");
+        ctx.fillStyle="#ecfccb"; ctx.font="bold 15px sans-serif"; ctx.textAlign="center"; ctx.fillText("⚡", b.c*CELL+CELL/2, b.r*CELL+CELL/2+5); ctx.textAlign="left";
+      });
+      world.hazards.forEach(function(h){
+        if (!alive(h, R.hazardLife)) return;
+        cellBox(h.c,h.r,"#7f1d1d","#f87171");
+        ctx.fillStyle="#fecaca"; ctx.font="bold 14px sans-serif"; ctx.textAlign="center"; ctx.fillText("✕", h.c*CELL+CELL/2, h.r*CELL+CELL/2+5); ctx.textAlign="left";
+      });
+    })();
     // ghost previews: reserved landing zones with countdown
     world.situations.forEach(function(s){
       if (!s.cells || !s.cells.length) return;
@@ -720,7 +750,7 @@
         log("⚙ rule <b>"+field+"</b> → "+v+" (next tick uses it)");
       });
     }
-    ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover", "rule-situlead/situLead"].forEach(function(pair){
+    ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover", "rule-situlead/situLead", "rule-battlife/battLife", "rule-hazardlife/hazardLife"].forEach(function(pair){
       var parts = pair.split("/"); bindRule(parts[0], parts[1]);
     });
     var rb = $("rulesResetBtn");
@@ -728,7 +758,7 @@
       var D = window.DroneProviders.DEFAULT_RULES;
       Object.keys(D).forEach(function(k){ window.DroneProviders.RULES[k] = D[k]; });
       window.DroneProviders.saveRules();
-      ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover", "rule-situlead/situLead"].forEach(function(pair){
+      ["rule-move/move", "rule-hover/hover", "rule-wall/wall", "rule-hazard/hazard", "rule-charge/charge", "rule-pad/pad", "rule-padbatt/padBatt", "rule-low/low", "rule-maxobs/maxObs", "rule-maxhover/maxHover", "rule-situlead/situLead", "rule-battlife/battLife", "rule-hazardlife/hazardLife"].forEach(function(pair){
         var parts = pair.split("/"); var el = $(parts[0]); if (el) el.value = D[parts[1]];
       });
       refreshRulesLabels(); renderLB();
