@@ -668,7 +668,7 @@
       log("🧹 heatmap cleared");
     };
     makeDrones();
-    spawn(4,"hazards"); spawn(3,"batteries"); spawn(2,"goals"); renderLB();
+    renderLB();
     var P = window.DroneProviders;
     renderPayloadSelect();
     var fol = followedDrone();
@@ -726,6 +726,7 @@
     $("autoBtn").onclick=function(){ autoWaves=!autoWaves; this.textContent="Auto waves: "+(autoWaves?"on":"off"); this.classList.toggle("active",autoWaves); };
     $("spawnHazardBtn").onclick=function(){ spawn(2,"hazards"); renderLB(); log("🌊 +2 hazards"); };
     $("spawnBatteryBtn").onclick=function(){ spawn(2,"batteries"); renderLB(); log("⚡ +2 batteries"); };
+    $("spawnPadBtn").onclick=function(){ spawn(1,"goals"); renderLB(); log("◎ +1 pad"); };
     $("clearBtn").onclick=function(){ world.hazards=[];world.batteries=[];world.goals=[]; renderLB(); log("🧹 cleared"); };
     // ⚙ Rules panel — numbers only, no code edits
     function refreshRulesLabels(){
