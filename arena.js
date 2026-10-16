@@ -29,7 +29,7 @@
     saveSelected();
   }
   var world = { cols: COLS, rows: ROWS, tick: 0, hazards: [], batteries: [], goals: [], drones: [], situations: [] };
-  var SITU_ROTATION = ["storm", "cache", "gold"];
+  var SITU_ROTATION = ["gold"];
   var situIdx = 0;
   var history = []; // [{t, scores:{modelId: score}}] capped at 200 — feeds the Analytics sparkline
   var heatFilter = "all";
