@@ -418,12 +418,8 @@
         applyMove(d, mv);
       }
     });
-    // hazards shamble one cell per tick but never onto pads/batteries (option a)
-    world.hazards.forEach(function(h){
-      var opts = [[0,0],[1,0],[-1,0],[0,1],[0,-1]][rnd(5)];
-      var nc = Math.min(COLS-1, Math.max(0, h.c+opts[0])), nr = Math.min(ROWS-1, Math.max(0, h.r+opts[1]));
-      if (at(world.goals, nc, nr) === -1 && at(world.batteries, nc, nr) === -1) { h.c = nc; h.r = nr; }
-    });
+    // hazard shamble parked: hazards sit still until decay/manual removal.
+    // (was: 1 random step per tick — too much board churn)
     world.tick++;
     tickSituations();
     var snap = { t: world.tick, s: {} };
