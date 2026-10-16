@@ -479,10 +479,12 @@
       var names = placed.map(function(cell){ return P.cellName(cell.c, cell.r); });
       log(placed.length ? "🔋 <b>cache lands:</b> " + placed.length + "-cell block @ " + names.join(", ") : "🔋 <b>cache fizzles</b> — zone taken");
     } else if (s.type === "gold") {
-      var n = 0;
-      world.goals.forEach(function(g){ if (!g.gold) { g.gold = true; n++; } });
-      if (n) log("✨ <b>gold rush:</b> " + n + " pad" + (n === 1 ? "" : "s") + " pay double — first claim only");
-      else log("✨ <b>gold rush fizzles</b> — no pads on board");
+      var fresh = world.goals.filter(function(g){ return !g.gold; });
+      if (fresh.length) {
+        var pick = fresh[Math.floor(Math.random() * fresh.length)];
+        pick.gold = true;
+        log("✨ <b>gold rush:</b> pad " + P.cellName(pick.c, pick.r) + " pays double — first claim only");
+      } else log("✨ <b>gold rush fizzles</b> — no pads on board");
     }
   }
   function at(list, c, r){ for(var i=list.length-1;i>=0;i--) if(list[i].c===c&&list[i].r===r) return i; return -1; }
