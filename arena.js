@@ -420,24 +420,28 @@
   }
 
   // 3x3 block placement on the freest spot: tries random centers, keeps the
-  // first block with 5+ free cells, fills every free cell up to the cap.
-  function placeBlock(kind){
-    var pool = kind === "hazards" ? world.hazards : world.batteries;
-    var cap = kind === "hazards"
-      ? Math.max(0, rules().maxObs - pool.length)
-      : Math.max(0, 9 - pool.length);
-    if (cap <= 0) return [];
-    var ex = occupiedSet(), placed = [], tries = 0, need = Math.min(5, cap);
-    while (placed.length < need && tries < 20) {
+  // first block with 5+ free cells. findBlock only reserves; placeBlock fills.
+  function findBlock(){
+    var ex = occupiedSet(), best = [], tries = 0;
+    while (best.length < 5 && tries < 20) {
       tries++;
       var cc = 1 + rnd(COLS - 2), cr = 1 + rnd(ROWS - 2), free = [];
       for (var oy = -1; oy <= 1; oy++) for (var ox = -1; ox <= 1; ox++) {
         var bx = cc + ox, by = cr + oy;
         if (!ex[bx + "," + by]) free.push({ c: bx, r: by });
       }
-      if (free.length >= need) placed = free;
+      if (free.length >= 5) best = free;
     }
-    placed = placed.slice(0, cap);
+    return best;
+  }
+  function placeBlock(kind, cells){
+    var pool = kind === "hazards" ? world.hazards : world.batteries;
+    var cap = kind === "hazards"
+      ? Math.max(0, rules().maxObs - pool.length)
+      : Math.max(0, 9 - pool.length);
+    if (cap <= 0) return [];
+    var ex = occupiedSet();
+    var placed = cells.filter(function(cell){ return !ex[cell.c + "," + cell.r]; }).slice(0, cap);
     placed.forEach(function(cell){
       ex[cell.c + "," + cell.r] = 1;
       pool.push(cell);
@@ -448,12 +452,12 @@
   function fireSituation(s){
     var P = window.DroneProviders;
     if (s.type === "storm") {
-      var dropped = placeBlock("hazards");
-      log(dropped.length ? "⛈ <b>storm hits:</b> " + dropped.length + "-cell hazard block" : "⛈ <b>storm fizzles</b> — at hazard cap");
+      var dropped = placeBlock("hazards", s.cells || []);
+      log(dropped.length ? "⛈ <b>storm hits:</b> " + dropped.length + "-cell hazard block" : "⛈ <b>storm fizzles</b> — zone taken or at cap");
     } else if (s.type === "cache") {
-      var placed = placeBlock("batteries");
+      var placed = placeBlock("batteries", s.cells || []);
       var names = placed.map(function(cell){ return P.cellName(cell.c, cell.r); });
-      log(placed.length ? "🔋 <b>cache lands:</b> " + placed.length + "-cell block @ " + names.join(", ") : "🔋 <b>cache fizzles</b> — no room");
+      log(placed.length ? "🔋 <b>cache lands:</b> " + placed.length + "-cell block @ " + names.join(", ") : "🔋 <b>cache fizzles</b> — zone taken");
     } else if (s.type === "gold") {
       var n = 0;
       world.goals.forEach(function(g){ if (!g.gold) { g.gold = true; n++; } });
@@ -472,10 +476,12 @@
         world.situations.splice(i, 1);
       }
     }
-    // schedule next when quiet
+    // schedule next when quiet (reserve the landing zone for the ghost preview)
     if (alive && !world.situations.length && Math.random() < 0.3) {
       var type = SITU_ROTATION[situIdx % SITU_ROTATION.length]; situIdx++;
-      world.situations.push({ type: type, firesAt: world.tick + lead });
+      var entry = { type: type, firesAt: world.tick + lead };
+      if (type === "storm" || type === "cache") entry.cells = findBlock();
+      world.situations.push(entry);
       var names = { storm: "⛈ storm", cache: "🔋 cache", gold: "✨ gold rush" };
       log("📢 situation queued: <b>" + (names[type] || type) + "</b> in " + lead);
     }
@@ -520,7 +526,7 @@
         d.px += (gx-d.px)*k; d.py += (gy-d.py)*k;
         if(Math.abs(gx-d.px)<0.5) d.px=gx; if(Math.abs(gy-d.py)<0.5) d.py=gy;
       });
-      if(autoWaves && now-lastWave>12000){ spawn(2,"hazards"); spawn(1,"batteries"); if(world.goals.length<3)spawn(1,"goals"); log("🌊 new wave"); renderLB(); }
+      if(autoWaves && now-lastWave>12000 && world.drones.some(function(d){ return !d.dead; })){ spawn(2,"hazards"); spawn(1,"batteries"); if(world.goals.length<3)spawn(1,"goals"); log("🌊 new wave"); renderLB(); }
       if(now-lastDecision>2000){ lastDecision=now; decideAll(); }
     }
     draw(); requestAnimationFrame(frame);
@@ -552,6 +558,24 @@
       ctx.fillStyle="#ecfccb"; ctx.font="bold 15px sans-serif"; ctx.textAlign="center"; ctx.fillText("⚡", b.c*CELL+CELL/2, b.r*CELL+CELL/2+5); ctx.textAlign="left"; });
     world.hazards.forEach(function(h){ cellBox(h.c,h.r,"#7f1d1d","#f87171");
       ctx.fillStyle="#fecaca"; ctx.font="bold 14px sans-serif"; ctx.textAlign="center"; ctx.fillText("✕", h.c*CELL+CELL/2, h.r*CELL+CELL/2+5); ctx.textAlign="left"; });
+    // ghost previews: reserved landing zones with countdown
+    world.situations.forEach(function(s){
+      if (!s.cells || !s.cells.length) return;
+      var n = Math.max(0, s.firesAt - world.tick);
+      var col = s.type === "storm" ? "#f87171" : "#a3e635";
+      s.cells.forEach(function(cell, i){
+        var x = cell.c*CELL, y = cell.r*CELL;
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+        ctx.strokeRect(x+3, y+3, CELL-6, CELL-6);
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        if (i === 0) {
+          ctx.fillStyle = col; ctx.font = "bold 11px monospace"; ctx.textAlign = "center";
+          ctx.fillText(n + "", x+CELL/2, y+16); ctx.textAlign = "left";
+        }
+      });
+    });
     world.drones.forEach(function(d){
       var R = rules();
       var x=d.c*CELL, y=d.r*CELL;
