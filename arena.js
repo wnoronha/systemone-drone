@@ -517,7 +517,7 @@
     d.trail.push(P.cellName(d.c, d.r));
     if (d.trail.length > 3) d.trail.shift();
     var bi = at(world.batteries, d.c, d.r);
-    if(bi!==-1){ world.batteries.splice(bi,1); d.battery=Math.min(100,d.battery+R.charge); stats[d.model].pickups++; log("⚡ <b style='color:"+d.color+"'>"+d.label+"</b> +"+R.charge+" @ "+P.cellName(d.c,d.r)+" (now "+d.battery+")"); }
+    if(bi!==-1){ world.batteries.splice(bi,1); d.battery=Math.min(100,d.battery+R.charge); stats[d.model].pickups++; log("⚡ <b style='color:"+d.color+"'>"+d.label+"</b> +"+R.charge+" @ "+P.cellName(d.c,d.r)+" (now "+d.battery+")"); spawn(1,"batteries"); }
     var gi = at(world.goals, d.c, d.r);
     if(gi!==-1){
       var claimed = world.goals[gi];
