@@ -5,7 +5,7 @@
   var DELTAS = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0], hover:[0,0] };
 
   // Single source of truth for game economy. Editable via ⚙ Rules panel (no code edits).
-  var DEFAULT_RULES = { move: 5, hover: 1, wall: 5, hazard: 10, charge: 30, pad: 50, padBatt: 100, low: 30, maxObs: 10, maxHover: 3, situLead: 10, battLife: 0, hazardLife: 0 };
+  var DEFAULT_RULES = { move: 5, hover: 1, wall: 5, hazard: 10, charge: 30, pad: 50, padBatt: 100, low: 30, maxObs: 10, maxHover: 3, situLead: 10, battLife: 30, hazardLife: 40 };
   var RULES = {};
   try {
     var stored = JSON.parse(localStorage.getItem("drone.rules") || "{}");

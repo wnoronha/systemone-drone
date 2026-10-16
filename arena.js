@@ -33,7 +33,7 @@
   var situIdx = 0;
   var history = []; // [{t, scores:{modelId: score}}] capped at 200 — feeds the Analytics sparkline
   var heatFilter = "all";
-  var paused = false, autoWaves = false, lastWave = performance.now(), lastDecision = 0;
+  var paused = false, autoWaves = true, lastWave = performance.now(), lastDecision = 0;
   var situationsEnabled = false; // parked: queue nothing; fire/ghost code stays dormant
   var liveMode = false; // false = mock always; true = OpenRouter when key present
   var verboseTrace = true; // per-decision 🧠 lines in Events
