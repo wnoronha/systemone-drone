@@ -108,24 +108,6 @@
     };
   }
 
-  function asciiMap(world, focus) {
-    var idx = indexCells(world), rows = [];
-    for (var r = 0; r < world.rows; r++) {
-      var line = "";
-      for (var c = 0; c < world.cols; c++) {
-        var k = key(c, r), ch = ".";
-        if (idx.hazards[k]) ch = "X";
-        else if (idx.batteries[k]) ch = "B";
-        else if (idx.goals[k]) ch = "G";
-        if (focus && focus.c === c && focus.r === r) ch = "D";
-        else if (idx.drones[k]) ch = "R";
-        line += ch;
-      }
-      rows.push(line);
-    }
-    return "grid (" + world.cols + "x" + world.rows + ", A1 top-left):\n" + rows.join("\n");
-  }
-
   var OPENROUTER_DECISIONS = "https://openrouter.ai/api/alpha/decisions";
 
   function parseMoveKey(v) {
@@ -279,5 +261,5 @@
     OPENROUTER_BASE: OPENROUTER_BASE, DECISIONS_CATALOG_FALLBACK: DECISIONS_CATALOG_FALLBACK,
     fetchOpenRouterDecisionModels: fetchOpenRouterDecisionModels,
     buildDroneState: buildDroneState, mockDecide: mockDecide, openrouterDecide: openrouterDecide,
-    decideWithFallback: decideWithFallback, payloadPreview: payloadPreview, asciiMap: asciiMap };
+    decideWithFallback: decideWithFallback, payloadPreview: payloadPreview };
 })();

@@ -18,8 +18,8 @@
   } catch (e) { /* ignore */ }
   function saveSelected(){ try { localStorage.setItem("drone.models.selected", JSON.stringify(selectedIds)); } catch (e) {} }
   function metaFor(id) {
-    for (var i = 0; i < catalog.length; i++) if (catalog[i].id === id) return catalog[i];
-    return { id: id, label: id.split("/").pop(), vendor: "custom", isFree: false };
+    for (var i = 0; i < catalog.length; i++) if (catalog[i].id === id) return { id: catalog[i].id, label: esc(catalog[i].label), vendor: catalog[i].vendor, isFree: catalog[i].isFree };
+    return { id: id, label: esc(id.split("/").pop()), vendor: "custom", isFree: false };
   }
   function normalizeSelected() {
     var valid = {}; catalog.forEach(function(m){ valid[m.id] = 1; });
@@ -30,7 +30,6 @@
   }
   var world = { cols: COLS, rows: ROWS, tick: 0, hazards: [], batteries: [], goals: [], drones: [], situations: [] };
   var SITU_ROTATION = ["gold"];
-  var SITU_ICON = { gold: "✨", blocks: "🧱" };
   var situIdx = 0;
   var lastFireAt = -1000; // spacing: next queues only `lead` ticks after the last firing
   var history = []; // [{t, scores:{modelId: score}}] capped at 200 — feeds the Analytics sparkline
@@ -43,7 +42,8 @@
   var stats = {};
 
   function $(id){ return document.getElementById(id); }
-  var logEl, lbEl, pillsEl, payloadEl, tickEl, arenaMeta;
+  function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+  var logEl, lbEl, pillsEl, payloadEl, arenaMeta;
   function rnd(n){ return Math.floor(Math.random()*n); }
   function freeCell(exclude){
     for (var t = 0; t < 200; t++) {
@@ -148,13 +148,13 @@
     if (!items.length) { listEl.innerHTML = '<div class="modal-empty">No models match.</div>'; return; }
     var lastVendor = "", html = "";
     items.forEach(function(m){
-      if (m.vendor !== lastVendor) { lastVendor = m.vendor; html += '<div class="modal-vendor">'+lastVendor+'</div>'; }
+      if (m.vendor !== lastVendor) { lastVendor = m.vendor; html += '<div class="modal-vendor">'+esc(lastVendor)+'</div>'; }
       var on = !!sel[m.id];
       html += '<label class="modal-model-row'+(m.isFree?" is-free":"")+(on?" selected":"")+'">' +
-        '<input type="checkbox" class="modal-check" data-id="'+m.id+'"'+(on?" checked":"")+' />' +
-        '<span class="modal-model-main"><span class="modal-model-name">'+m.label +
+        '<input type="checkbox" class="modal-check" data-id="'+esc(m.id)+'"'+(on?" checked":"")+' />' +
+        '<span class="modal-model-main"><span class="modal-model-name">'+esc(m.label) +
         (m.isFree?'<span class="badge-free">Free</span>':"")+'</span>' +
-        '<span class="modal-model-id">'+m.id+'</span></span></label>';
+        '<span class="modal-model-id">'+esc(m.id)+'</span></span></label>';
     });
     listEl.innerHTML = html;
     listEl.querySelectorAll(".modal-check").forEach(function(cb){
@@ -192,9 +192,11 @@
   }
 
   function rules() { return (window.DroneProviders && window.DroneProviders.RULES) || { move:5, hover:1, wall:5, hazard:10, charge:30, pad:50, low:30 }; }
-  // payload inspector follows one drone (default: first). Selection persists by model id.
+  // payload inspector follows one drone (default: first). Dead/skipped drones
+  // fall back to the first alive drone so the preview never freezes.
   function followedDrone(){
-    for (var i = 0; i < world.drones.length; i++) if (world.drones[i].model === payloadFollow) return world.drones[i];
+    for (var i = 0; i < world.drones.length; i++) if (world.drones[i].model === payloadFollow && !world.drones[i].dead) return world.drones[i];
+    for (var j = 0; j < world.drones.length; j++) if (!world.drones[j].dead) return world.drones[j];
     return world.drones[0] || null;
   }
   function renderPayloadSelect(){
@@ -322,7 +324,6 @@
       return icon + " " + s.type + " in " + Math.max(0, s.firesAt - world.tick);
     }).join(" · ");
     arenaMeta.textContent = "tick "+world.tick+" · 16×11 · "+world.hazards.length+" hazards · "+world.batteries.length+" batteries · "+world.goals.length+" pads" + (situTxt ? " · " + situTxt : "");
-    if (tickEl) tickEl.textContent = world.tick;
   }
 
   function getApiKey() {
@@ -418,11 +419,11 @@
         applyMove(d, "hover");
       } else {
         if (isPadTarget) claimedPads[tk] = 1;
+        d.lastMove = mv;
         applyMove(d, mv);
       }
     });
-    // hazard shamble parked: hazards sit still until decay/manual removal.
-    // (was: 1 random step per tick — too much board churn)
+    // hazards are static: they sit until decay or manual removal
     world.tick++;
     tickSituations();
     spawn(2, "hazards"); // steady drip: tops up to the maxObs cap, decay clears the old
@@ -480,13 +481,14 @@
     } else if (s.type === "gold") {
       var n = 0;
       world.goals.forEach(function(g){ if (!g.gold) { g.gold = true; n++; } });
-      log("✨ <b>gold rush:</b> " + n + " pad" + (n === 1 ? "" : "s") + " pay double — first claim only");
+      if (n) log("✨ <b>gold rush:</b> " + n + " pad" + (n === 1 ? "" : "s") + " pay double — first claim only");
+      else log("✨ <b>gold rush fizzles</b> — no pads on board");
     }
   }
   function at(list, c, r){ for(var i=list.length-1;i>=0;i--) if(list[i].c===c&&list[i].r===r) return i; return -1; }
   function tickSituations(){
     var R = rules();
-    var lead = R.situLead == null ? 10 : R.situLead;
+    var lead = R.situLead == null ? 10 : Math.max(1, R.situLead);
     var alive = world.drones.some(function(d){ return !d.dead; });
     // fire due
     for (var i = world.situations.length - 1; i >= 0; i--) {
@@ -537,9 +539,9 @@
     else d.score+=1;
   }
 
-  var canvas, ctx, lastT = performance.now(), pulse = 0;
+  var canvas, ctx, lastT = performance.now();
   function frame(now){
-    var dt = Math.min(0.05,(now-lastT)/1000); lastT = now; pulse += dt;
+    var dt = Math.min(0.05,(now-lastT)/1000); lastT = now;
     if(!paused){
       decayEntities();
       // smooth glide: pixel pos eases toward logical cell center — never halts on lines
@@ -628,7 +630,7 @@
   function boot(){
     canvas=$("arena"); ctx=canvas.getContext("2d");
     logEl=$("eventLog"); lbEl=$("leaderboard"); pillsEl=$("modelPills");
-    payloadEl=$("jsonPayloadPreview"); tickEl=$("tickLabel"); arenaMeta=$("arenaMeta");
+    payloadEl=$("jsonPayloadPreview"); arenaMeta=$("arenaMeta");
     lbEl.addEventListener("click", function(e){
       var t = e.target.closest ? e.target.closest(".lb-del") : null;
       if (!t) return;
@@ -676,7 +678,7 @@
     var fol = followedDrone();
     if(fol){ var st=P.buildDroneState(world, fol);
       payloadEl.textContent=JSON.stringify(P.payloadPreview(st,fol.model),null,2); }
-    log("🏁 grid live — 1 entity = 1 cell, hazards shamble 1 cell/tick");
+    log("🏁 grid live — 1 entity = 1 cell, static hazards until decay");
     var keyEl = $("key-openrouter");
     var keyChip = $("keyChip");
     function refreshKeyVisibility(editing){
